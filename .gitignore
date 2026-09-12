@@ -1,0 +1,40 @@
+# ---- Secrets (keep at top; never relax these) ----
+*.json.key
+gcf-backend.json
+backend/secrets/
+.env
+.env.*
+!.env.example
+
+# ---- Python ----
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# ---- Node / frontend ----
+node_modules/
+dist/
+.vite/
+
+# ---- Backend generated artifacts ----
+backend/data/cache/
+backend/static/
+backend/outputs/
+*.tif
+*.tiff
+
+# ---- Models / weights ----
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
