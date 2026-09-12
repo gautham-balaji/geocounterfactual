@@ -85,6 +85,7 @@ class LocalDiffusionGenerator(BaseGenerator):
         self.seed = seed
         self.device = device
         self._pipe = None
+        self._rejected_so_far: Optional[np.ndarray] = None
 
     def describe(self) -> str:
         return (f"local SD1.5-inpaint + ControlNet-{self.conditioning_mode} "
@@ -204,8 +205,20 @@ class LocalDiffusionGenerator(BaseGenerator):
         tells the model what it got wrong.
         """
         mask = np.asarray(request.change_mask, dtype=np.float32) > 0
+
+        # Rejections must ACCUMULATE. critic_feedback_mask carries only the
+        # current pass, so applying it alone lets pixels corrected at
+        # iteration 1 become editable again at iteration 3 -- the oscillation
+        # (57800 -> 2700 -> 4800 m2) diagnosed in Phase 3. The stub was fixed
+        # then; the real backends were not.
+        if request.iteration == 0:
+            self._rejected_so_far = None
         if request.feedback_mask is not None:
-            mask = mask & ~np.asarray(request.feedback_mask, dtype=bool)
+            new_rejects = np.asarray(request.feedback_mask, dtype=bool)
+            self._rejected_so_far = (new_rejects if self._rejected_so_far is None
+                                     else self._rejected_so_far | new_rejects)
+        if self._rejected_so_far is not None:
+            mask = mask & ~self._rejected_so_far
         return mask
 
     # -- NDVI --------------------------------------------------------------

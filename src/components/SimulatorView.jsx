@@ -6,6 +6,10 @@ import SatelliteSlider from './SatelliteSlider';
 import MetricsPanel from './MetricsPanel';
 import { MOCK_REGIONS } from '../data/mockData';
 import { simulateStreaming, checkHealth } from '../services/api';
+import XAIOverlay, { XAIToolbar } from './XAIOverlay';
+import DiffCanvas from './DiffCanvas';
+import AgentTerminal from './AgentTerminal';
+import PipelineRail from './PipelineRail';
 
 export default function SimulatorView({ activeRegionId, setActiveRegionId, onLogsChange }) {
   const selectedRegion = MOCK_REGIONS.find(r => r.id === activeRegionId) || MOCK_REGIONS[0];
@@ -17,6 +21,30 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
   const [simStep, setSimStep] = useState(0); // 0 = idle, 1..5 = steps, 6 = completed
   const [result, setResult] = useState(null);
   const [backend, setBackend] = useState({ online: false });
+  const [logs, setLogs] = useState([]);
+
+  // Free-roam target picked off the globe. Null means "a pilot zone is
+  // selected"; anything else is an unverified location.
+  const [freeTarget, setFreeTarget] = useState(null);
+
+  // xAI overlay state
+  const [activeOverlays, setActiveOverlays] = useState(new Set());
+  const [overlayOpacity, setOverlayOpacity] = useState(0.85);
+  const [amplify, setAmplify] = useState(false);
+  const [gain, setGain] = useState(6);
+  const [blink, setBlink] = useState(false);
+  const [loupe, setLoupe] = useState(false);
+
+  const toggleOverlay = (id) => setActiveOverlays((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  // Only verified pilot zones can be simulated: the backend has a curated
+  // bbox, CRS and baseline window for each, and nothing else. Free-roam
+  // exploration stays available, it just cannot arm a run.
+  const targetIsVerified = freeTarget === null;
 
   // Probe once so the banner can say honestly whether the numbers on screen
   // came from the pipeline or from mock data.
@@ -25,6 +53,16 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
     checkHealth().then((h) => { if (!cancelled) setBackend(h); });
     return () => { cancelled = true; };
   }, []);
+
+  // Drop stale output when the target changes, or the panel keeps showing
+  // another region's imagery and metrics next to the new region's name.
+  useEffect(() => {
+    setResult(null);
+    setLogs([]);
+    setActiveOverlays(new Set());
+    setSimStep(0);
+    onLogsChange?.([]);
+  }, [activeRegionId]);
 
   const activePreset = selectedRegion.presets.find(p => p.id === selectedPresetId) || selectedRegion.presets[0];
 
@@ -42,6 +80,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
     setIsSimulating(true);
     setSimStep(1);
     setResult(null);
+    setLogs([]);
     onLogsChange?.([]);
 
     // The progress bar is now driven by real node completions rather than
@@ -55,6 +94,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
       onNode: ({ node, logs }) => {
         if (logs?.length) {
           collected.push(...logs);
+          setLogs([...collected]);
           onLogsChange?.([...collected]);
         }
         const step = NODE_STEP[node];
@@ -63,7 +103,17 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
     });
 
     setResult(payload);
-    if (payload.execution_logs?.length) onLogsChange?.(payload.execution_logs);
+    if (payload.execution_logs?.length) {
+      setLogs(payload.execution_logs);
+      onLogsChange?.(payload.execution_logs);
+    }
+    // Surface the critic's rejection immediately -- it is the single most
+    // informative overlay and the reason the loop exists.
+    if (payload.overlay_stats?.rejection_px > 0) {
+      setActiveOverlays(new Set(['rejection', 'footprint']));
+    } else if (payload.overlays) {
+      setActiveOverlays(new Set(['footprint']));
+    }
     setSimStep(6);
     setIsSimulating(false);
 
@@ -114,7 +164,10 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
           <Globe3D
             regions={MOCK_REGIONS}
             selectedRegionId={activeRegionId}
+            freeTarget={freeTarget}
+            onPickTarget={(t) => setFreeTarget(t)}
             onSelectRegion={(id) => {
+              setFreeTarget(null);
               setActiveRegionId(id);
               const newReg = MOCK_REGIONS.find(r => r.id === id);
               if (newReg && newReg.presets.length > 0) {
@@ -123,6 +176,44 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
               }
             }}
           />
+
+          {/* Target status: free navigation is always allowed, simulation is
+              not. Saying exactly why is better than a dead button. */}
+          <div className={`glass-panel p-3 rounded-xl border text-xs font-mono flex items-start gap-2.5 ${
+            targetIsVerified
+              ? 'border-emerald-500/40 bg-emerald-950/20'
+              : 'border-amber-500/50 bg-amber-950/20'
+          }`}>
+            {targetIsVerified ? (
+              <>
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <div className="text-emerald-300 font-bold">VERIFIED PILOT ZONE</div>
+                  <div className="text-slate-400 mt-0.5">
+                    {selectedRegion.name} — calibrated baseline, DEM and cloud-free window on file.
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-amber-300 font-bold">UNVERIFIED TARGET</div>
+                  <div className="text-slate-400 mt-0.5 leading-relaxed">
+                    {freeTarget.lat.toFixed(3)}°, {freeTarget.lng.toFixed(3)}° has no calibrated
+                    baseline or agro-climatic validation. Explore freely; simulation is
+                    restricted to the {MOCK_REGIONS.length} pilot watersheds.
+                  </div>
+                  <button
+                    onClick={() => setFreeTarget(null)}
+                    className="mt-2 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] border border-slate-700 transition"
+                  >
+                    Return to {selectedRegion.name.split(',')[0]}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Intervention Input Box & Preset Buttons */}
           <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-4">
@@ -179,10 +270,15 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
             {/* Run Simulation Action Button */}
             <button
               onClick={handleRunSimulation}
-              disabled={isSimulating || !inputText.trim()}
+              disabled={isSimulating || !inputText.trim() || !targetIsVerified}
+              title={!targetIsVerified
+                ? 'Simulation is restricted to verified pilot watersheds'
+                : undefined}
               className={`w-full py-3.5 px-4 rounded-xl font-mono text-sm font-bold transition flex items-center justify-center gap-2.5 shadow-xl ${
                 isSimulating
                   ? 'bg-cyan-950 text-cyan-400 border border-cyan-500/50 cursor-wait'
+                  : !targetIsVerified || !inputText.trim()
+                  ? 'bg-slate-800/70 text-slate-500 border border-slate-700 cursor-not-allowed'
                   : 'bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-extrabold shadow-glow-emerald hover:scale-[1.01]'
               }`}
             >
@@ -190,6 +286,11 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
                 <>
                   <div className="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
                   <span>EXECUTING MULTI-AGENT PIPELINE...</span>
+                </>
+              ) : !targetIsVerified ? (
+                <>
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>SELECT A VERIFIED PILOT ZONE</span>
                 </>
               ) : (
                 <>
@@ -224,7 +325,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
           </div>
         </div>
 
-        {/* Right Column (7/12): Satellite Slider + Metrics Audit Panel */}
+        {/* Right Column (7/12): Satellite Slider + xAI + live terminal */}
         <div className="lg:col-span-7 space-y-6">
           {/* Before & After Satellite Image Slider */}
           <SatelliteSlider
@@ -233,7 +334,60 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
             activePreset={activePreset}
             activeLayer={activeLayer}
             setActiveLayer={setActiveLayer}
+            blink={blink}
+            loupe={loupe}
+          >
+            <XAIOverlay
+              overlays={result?.overlays}
+              active={activeOverlays}
+              opacity={overlayOpacity}
+            />
+            <DiffCanvas
+              beforeSrc={result?.imagery?.optical?.before}
+              afterSrc={result?.imagery?.optical?.after}
+              gain={gain}
+              visible={amplify && Boolean(result?.imagery)}
+            />
+          </SatelliteSlider>
+
+          <XAIToolbar
+            overlays={result?.overlays}
+            stats={result?.overlay_stats}
+            active={activeOverlays}
+            onToggle={toggleOverlay}
+            opacity={overlayOpacity}
+            onOpacity={setOverlayOpacity}
+            amplify={amplify}
+            onAmplify={() => setAmplify((v) => !v)}
+            gain={gain}
+            onGain={setGain}
+            blink={blink}
+            onBlink={() => setBlink((v) => !v)}
+            loupe={loupe}
+            onLoupe={() => setLoupe((v) => !v)}
           />
+
+          {/* Command-center side-by-side: the agent stream sits next to the
+              imagery, so the Critic's rejection and the pixels it rejected
+              are visible in one glance instead of on separate tabs. */}
+          <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 items-start">
+            <div className="xl:col-span-2 space-y-4">
+              <PipelineRail
+                logs={logs}
+                isRunning={isSimulating}
+                iterations={result?.critic_iterations ?? 0}
+              />
+            </div>
+            <div className="xl:col-span-3">
+              <AgentTerminal
+                logs={logs}
+                isLive={logs.length > 0}
+                isRunning={isSimulating}
+                heightClass="h-[360px]"
+                title="AGENT CHATTER"
+              />
+            </div>
+          </div>
 
           {/* Metrics & Physical Plausibility Audit Panel */}
           <MetricsPanel

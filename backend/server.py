@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+import shutil
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -87,7 +88,32 @@ class HealthResponse(BaseModel):
 _JOBS: Dict[str, Dict[str, Any]] = {}
 
 
+MAX_TRACKED_JOBS = 24
+MAX_RUN_DIRS = 12
+
+
+def _prune_jobs() -> None:
+    """Bound the registry. Without this every run leaks its request dict."""
+    if len(_JOBS) <= MAX_TRACKED_JOBS:
+        return
+    for job_id in sorted(_JOBS, key=lambda k: _JOBS[k]["created"])[
+            :len(_JOBS) - MAX_TRACKED_JOBS]:
+        _JOBS.pop(job_id, None)
+
+
+def _prune_runs() -> None:
+    """Keep the newest N run directories; each is ~2.5 MB of PNGs."""
+    runs_dir = settings.static_dir / "runs"
+    if not runs_dir.is_dir():
+        return
+    dirs = sorted((d for d in runs_dir.iterdir() if d.is_dir()),
+                  key=lambda d: d.stat().st_mtime, reverse=True)
+    for stale in dirs[MAX_RUN_DIRS:]:
+        shutil.rmtree(stale, ignore_errors=True)
+
+
 def _new_job(payload: SimulateRequest) -> str:
+    _prune_jobs()
     job_id = uuid.uuid4().hex[:12]
     _JOBS[job_id] = {"request": payload, "created": time.time(),
                      "status": "pending", "result": None, "error": None}
@@ -148,8 +174,56 @@ def _render_outputs(state: Dict[str, Any], run_id: str) -> Dict[str, Any]:
         else np.zeros(future_rgb.shape[:2], bool),
         out_dir / "after_critic.png", colour=(1.0, 0.15, 0.2), alpha=0.65)
 
+    # --- transparent RGBA overlays for the xAI layer --------------------
+    # Distinct from the four band views above: these have alpha 0 outside
+    # the region they describe, so the frontend can stack them over the
+    # optical scene and fade them, instead of swapping to a separate image.
+    change_bool = (np.asarray(change) > 0 if change is not None
+                   else np.zeros(base_rgb.shape[:2], bool))
+    water_bool = (np.asarray(change) >= 1.0 if change is not None
+                  else np.zeros(base_rgb.shape[:2], bool))
+
+    # The FIRST rejection, not the last. On an approved run the final
+    # feedback mask is all zeros, which rendered an empty grey frame for the
+    # one artifact that demonstrates the critic actually did something.
+    history = state.get("rejection_history") or []
+    if history:
+        first_reject = np.asarray(history[0]["mask"], dtype=bool)
+    else:
+        first_reject = np.zeros(base_rgb.shape[:2], dtype=bool)
+
+    raster_io.render_rgba_mask(change_bool, out_dir / "ov_footprint.png",
+                               colour=(0.13, 0.83, 1.0), alpha=0.85,
+                               outline_only=True)
+    raster_io.render_rgba_mask(water_bool, out_dir / "ov_impoundment.png",
+                               colour=(0.20, 0.55, 1.0), alpha=0.70)
+    raster_io.render_rgba_mask(first_reject, out_dir / "ov_rejection.png",
+                               colour=(1.0, 0.16, 0.28), alpha=0.75)
+    raster_io.render_rgba_diverging(
+        np.asarray(future_ndvi) - np.asarray(base_ndvi),
+        out_dir / "ov_ndvi_delta.png", threshold=0.05, vmin=-0.4, vmax=0.4)
+    slope = state.get("dem_slope")
+    raster_io.render_rgba_mask(
+        (np.asarray(slope) > settings.max_slope_for_water_deg) if slope is not None
+        else np.zeros(base_rgb.shape[:2], bool),
+        out_dir / "ov_steep.png", colour=(1.0, 0.62, 0.0), alpha=0.38)
+
     base_url = f"/static/runs/{run_id}"
     return {
+        "overlays": {
+            "footprint": f"{base_url}/ov_footprint.png",
+            "impoundment": f"{base_url}/ov_impoundment.png",
+            "rejection": f"{base_url}/ov_rejection.png",
+            "ndvi_delta": f"{base_url}/ov_ndvi_delta.png",
+            "steep_terrain": f"{base_url}/ov_steep.png",
+        },
+        "overlay_stats": {
+            "footprint_px": int(change_bool.sum()),
+            "impoundment_px": int(water_bool.sum()),
+            "rejection_px": int(first_reject.sum()),
+            "rejection_iteration": (history[0]["iteration"] if history else None),
+            "rejection_violations": (history[0]["violations"] if history else []),
+        },
         "optical": {"before": f"{base_url}/before_optical.png",
                     "after": f"{base_url}/after_optical.png"},
         "ndvi": {"before": f"{base_url}/before_ndvi.png",
@@ -206,6 +280,7 @@ def _build_response(state: Dict[str, Any], run_id: str,
                     elapsed: float) -> Dict[str, Any]:
     logs = state.get("execution_logs") or []
     rejections = [e for e in logs if e.get("type") == "reject"]
+    imagery = _render_outputs(state, run_id)
     return {
         "status": "success",
         "run_id": run_id,
@@ -220,7 +295,15 @@ def _build_response(state: Dict[str, Any], run_id: str,
         "intervention_plan": state.get("intervention_plan") or {},
         "target_stream_coords": state.get("target_stream_coords") or [],
         "metrics_delta": _metrics(state),
-        "imagery": _render_outputs(state, run_id),
+        "imagery": imagery,
+        "overlays": imagery.pop("overlays", {}),
+        "overlay_stats": imagery.pop("overlay_stats", {}),
+        "rejection_history": [
+            {"iteration": h["iteration"], "score": h["score"],
+             "violations": h["violations"], "rule_ids": h.get("rule_ids", []),
+             "rejected_px": int(np.asarray(h["mask"]).sum())}
+            for h in (state.get("rejection_history") or [])
+        ],
         "execution_logs": logs,
     }
 
@@ -276,7 +359,9 @@ def simulate(req: SimulateRequest) -> Dict[str, Any]:
         logger.exception("Simulation failed")
         raise HTTPException(500, f"Simulation failed: {exc}") from exc
 
-    return _build_response(state, run_id, time.time() - started)
+    response = _build_response(state, run_id, time.time() - started)
+    _prune_runs()
+    return response
 
 
 @app.post("/api/simulate/async")
@@ -299,6 +384,12 @@ async def stream(job_id: str):
     job = _JOBS.get(job_id)
     if job is None:
         raise HTTPException(404, f"Unknown job '{job_id}'")
+
+    # A browser retry or double-click would otherwise run the entire graph a
+    # second time, doubling GPU cost and interleaving two log streams.
+    if job["status"] in ("running", "done"):
+        raise HTTPException(409, f"Job '{job_id}' is already {job['status']}; "
+                                 f"fetch /api/result/{job_id}")
 
     req: SimulateRequest = job["request"]
     queue: asyncio.Queue = asyncio.Queue()
@@ -333,6 +424,7 @@ async def stream(job_id: str):
 
             run_id = uuid.uuid4().hex[:12]
             payload = _build_response(merged, run_id, time.time() - started)
+            _prune_runs()
             job.update(status="done", result=payload)
             loop.call_soon_threadsafe(queue.put_nowait, {
                 "event": "complete", "data": json.dumps(payload)})

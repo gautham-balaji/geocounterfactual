@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Layers, Sliders, Maximize2, ShieldCheck, Eye, Sparkles } from 'lucide-react';
 
 // Maps the layer-selector ids to the keys in the backend's `imagery` payload.
+// Layers that are model output rather than measured reflectance.
+const MODELLED_LAYERS = new Set(['moisture', 'ndvi']);
+
 const LAYER_TO_IMAGERY_KEY = {
   optical: 'optical',
   ndvi: 'ndvi',
@@ -9,9 +12,25 @@ const LAYER_TO_IMAGERY_KEY = {
   critic_mask: 'critic',
 };
 
-export default function SatelliteSlider({ region, activePreset, activeLayer, setActiveLayer, imagery = null }) {
+export default function SatelliteSlider({
+  region, activePreset, activeLayer, setActiveLayer,
+  imagery = null, children = null,
+  blink = false, loupe = false, loupeZoom = 3,
+}) {
   const [sliderPosition, setSliderPosition] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
+  const [blinkShowBefore, setBlinkShowBefore] = useState(false);
+  const [cursor, setCursor] = useState(null);   // {xPct, yPct} for the loupe
+  const viewportRef = useRef(null);
+
+  // A/B blink. Alternating the two frames in place is markedly better than a
+  // slider for spotting small changes -- the eye detects the flicker where a
+  // static side-by-side comparison hides it behind a saccade.
+  React.useEffect(() => {
+    if (!blink) { setBlinkShowBefore(false); return; }
+    const id = setInterval(() => setBlinkShowBefore((v) => !v), 500);
+    return () => clearInterval(id);
+  }, [blink]);
 
   // Real rasters when the backend supplied them; otherwise the original
   // client-side SVG scene, so the demo still works with the backend down.
@@ -20,8 +39,14 @@ export default function SatelliteSlider({ region, activePreset, activeLayer, set
   const hasRaster = Boolean(layerUrls?.before && layerUrls?.after);
 
   const handleMouseMove = (e) => {
-    if (!isDragging) return;
     const rect = e.currentTarget.getBoundingClientRect();
+    if (loupe) {
+      setCursor({
+        xPct: ((e.clientX - rect.left) / rect.width) * 100,
+        yPct: ((e.clientY - rect.top) / rect.height) * 100,
+      });
+    }
+    if (!isDragging) return;
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
     setSliderPosition((x / rect.width) * 100);
   };
@@ -66,10 +91,11 @@ export default function SatelliteSlider({ region, activePreset, activeLayer, set
 
       {/* Main Image Slider Viewport */}
       <div
+        ref={viewportRef}
         className="relative w-full h-[460px] rounded-2xl overflow-hidden glass-panel border border-slate-800 select-none cursor-ew-resize group"
         onMouseDown={() => setIsDragging(true)}
         onMouseUp={() => setIsDragging(false)}
-        onMouseLeave={() => setIsDragging(false)}
+        onMouseLeave={() => { setIsDragging(false); setCursor(null); }}
         onMouseMove={handleMouseMove}
         onTouchStart={() => setIsDragging(true)}
         onTouchEnd={() => setIsDragging(false)}
@@ -80,12 +106,24 @@ export default function SatelliteSlider({ region, activePreset, activeLayer, set
           {hasRaster
             ? <RasterLayer src={layerUrls.after} alt="Generated counterfactual scene" />
             : <SatelliteImageGraphics layer={activeLayer} mode="after" region={region} />}
+          {/* xAI overlays and the amplification canvas sit here so they
+              inherit the same object-cover geometry as the raster and stay
+              pixel-registered with it. */}
+          {children}
           {/* Top Right Label */}
           <div className="absolute top-4 right-4 z-10 bg-emerald-950/80 backdrop-blur-md border border-emerald-500/60 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-glow-emerald">
             <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
             <span className="text-xs font-mono font-bold text-emerald-300 uppercase tracking-wider">
               AFTER: SIMULATED COUNTERFACTUAL
             </span>
+            {/* Moisture is the Dynamics agent's own prediction, not an
+                observation. Saying so on the image removes the sharpest
+                line of attack on the work. */}
+            {MODELLED_LAYERS.has(activeLayer) && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-200 border border-amber-500/50">
+                MODELLED
+              </span>
+            )}
           </div>
         </div>
 
@@ -97,7 +135,12 @@ export default function SatelliteSlider({ region, activePreset, activeLayer, set
             rasters -- the baseline would slide as the handle moved. */}
         <div
           className="absolute inset-0 w-full h-full"
-          style={{ clipPath: `inset(0 ${100 - sliderPosition}% 0 0)` }}
+          style={{
+            clipPath: blink
+              ? (blinkShowBefore ? 'inset(0 0 0 0)' : 'inset(0 100% 0 0)')
+              : `inset(0 ${100 - sliderPosition}% 0 0)`,
+            transition: blink ? 'none' : undefined,
+          }}
         >
           <div className="relative w-full h-full">
             {hasRaster
@@ -116,13 +159,50 @@ export default function SatelliteSlider({ region, activePreset, activeLayer, set
         {/* Vertical Divider Handle Line */}
         <div
           className="absolute top-0 bottom-0 w-1 bg-cyan-400 shadow-glow-cyan z-20 pointer-events-none"
-          style={{ left: `${sliderPosition}%` }}
+          style={{ left: `${sliderPosition}%`, opacity: blink ? 0 : 1 }}
         >
           {/* Handle Pill */}
           <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-9 h-9 rounded-full bg-darkbg-900 border-2 border-cyan-400 flex items-center justify-center text-cyan-300 shadow-xl">
             <Sliders className="w-4 h-4 rotate-90" />
           </div>
         </div>
+
+        {/* Loupe magnifier: before (left) and after (right) at 3x */}
+        {loupe && cursor && hasRaster && (
+          <div
+            className="absolute z-30 pointer-events-none rounded-xl overflow-hidden border-2 border-sky-400/80 shadow-2xl"
+            style={{
+              width: 208, height: 104,
+              left: `calc(${cursor.xPct}% - 104px)`,
+              top: `calc(${cursor.yPct}% - 130px)`,
+            }}
+          >
+            <div className="relative w-full h-full flex">
+              {['before', 'after'].map((which) => (
+                <div key={which} className="relative w-1/2 h-full overflow-hidden border-r border-sky-400/40 last:border-r-0">
+                  <div
+                    className="absolute inset-0"
+                    style={{
+                      backgroundImage: `url(${layerUrls[which]})`,
+                      backgroundSize: `${loupeZoom * 100}% ${loupeZoom * 100}%`,
+                      backgroundPosition: `${cursor.xPct}% ${cursor.yPct}%`,
+                      backgroundRepeat: 'no-repeat',
+                    }}
+                  />
+                  <span className="absolute bottom-0.5 left-1 text-[8px] font-mono font-bold text-white/90 drop-shadow">
+                    {which.toUpperCase()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {blink && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-3 py-1 rounded-lg bg-violet-950/85 border border-violet-500/60 text-[11px] font-mono font-bold text-violet-200">
+            A/B BLINK — showing {blinkShowBefore ? 'BEFORE' : 'AFTER'}
+          </div>
+        )}
 
         {/* Bottom Metadata HUD */}
         <div className="absolute bottom-4 left-4 right-4 z-10 flex items-center justify-between pointer-events-none">

@@ -26,6 +26,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+from scipy import ndimage
 from pydantic import BaseModel, Field, ValidationError
 
 from backend.agents import terrain
@@ -51,6 +52,9 @@ class InterventionPlan(BaseModel):
                                  description="Riparian/recharge buffer radius")
     impound_height_m: float = Field(ge=0.5, le=8.0, default=3.0,
                                     description="Structure crest height")
+    area_hectares: Optional[float] = Field(
+        default=None, ge=1.0, le=5000.0,
+        description="Treated area in hectares if the text states one")
     reasoning: str = Field(default="", description="One sentence of rationale")
 
     def normalized(self) -> "InterventionPlan":
@@ -171,7 +175,13 @@ def keyword_fallback(text: str) -> InterventionPlan:
     else:
         structure, strategy, height = "check_dam", "stream_channel", 3.0
 
-    numbers = [int(n) for n in re.findall(r"\b(\d{1,2})\b", lowered)]
+    area_match = re.search(r"(\d{1,5})\s*(?:ha\b|hectare)", lowered)
+    area = float(area_match.group(1)) if area_match else None
+
+    # Strip the area figure before reading a structure count, otherwise
+    # "afforest 150 hectares" parses as 150 structures.
+    without_area = re.sub(r"\d{1,5}\s*(?:ha\b|hectares?\b)", " ", lowered)
+    numbers = [int(n) for n in re.findall(r"\b(\d{1,2})\b", without_area)]
     count = numbers[0] if numbers else (4 if "series" in lowered else 3)
 
     return InterventionPlan(
@@ -180,6 +190,7 @@ def keyword_fallback(text: str) -> InterventionPlan:
         placement_strategy=strategy,
         buffer_radius_m=200,
         impound_height_m=height,
+        area_hectares=area,
         reasoning="Keyword heuristic (no LLM).",
     ).normalized()
 
@@ -190,11 +201,15 @@ def _pixel_to_lonlat(transform, row: int, col: int) -> tuple:
     return float(x), float(y)
 
 
+DEFAULT_PLANTATION_HA = 60.0
+
+
 def build_change_mask(
     plan: InterventionPlan,
     elevation: np.ndarray,
     slope: np.ndarray,
     cell_size: float = 10.0,
+    baseline_ndvi=None,
 ) -> tuple:
     """Stage 2. Intent + DEM -> weighted change mask and sited coordinates.
 
@@ -206,11 +221,38 @@ def build_change_mask(
     filled = products["filled"]
 
     if plan.placement_strategy == "upper_catchment":
-        # Afforestation targets degraded upper slopes, not channels.
+        # Afforestation targets degraded upper slopes, not channels, and is
+        # budgeted by AREA. Without the budget the eligible-terrain mask
+        # covered 1128 ha of a ~1900 ha tile, so "afforest 150 hectares"
+        # greened essentially the entire scene.
         sites: List[Dict[str, float]] = []
-        upper = (accumulation < 200) & (slope > 3.0) & (slope < 25.0)
+        eligible = (accumulation < 200) & (slope > 3.0) & (slope < 25.0)
+        budget_cells = int((plan.area_hectares or DEFAULT_PLANTATION_HA)
+                           * 10_000.0 / (cell_size ** 2))
+
+        if int(eligible.sum()) > budget_cells > 0:
+            # Plant the most degraded eligible ground first: lowest NDVI is
+            # both where afforestation is actually targeted and where there
+            # is headroom for the canopy to grow.
+            raw = (np.asarray(baseline_ndvi, dtype=np.float32)
+                   if baseline_ndvi is not None else slope)
+            # Smooth before ranking. Ranking raw per-pixel NDVI selects
+            # salt-and-pepper scatter across the whole catchment, which is
+            # not how anyone plants trees and which gives the footprint an
+            # enormous perimeter. A neighbourhood mean picks coherent
+            # degraded parcels instead.
+            score = ndimage.uniform_filter(raw, size=9)
+            score = np.where(eligible, score, np.inf)
+            flat = np.argsort(score, axis=None)[:budget_cells]
+            chosen = np.zeros_like(eligible)
+            chosen.ravel()[flat] = True
+            # Tidy the result into plantable blocks.
+            chosen = ndimage.binary_closing(chosen, iterations=2)
+            chosen = ndimage.binary_opening(chosen, iterations=1) & eligible
+            eligible = chosen
+
         core = np.zeros_like(streams, dtype=bool)
-        buffer = upper
+        buffer = eligible
     else:
         sites = terrain.select_dam_sites(
             streams=streams,
@@ -250,7 +292,8 @@ def planner_node(state: GeoCounterfactualState) -> dict:
     if plan is None:
         plan = keyword_fallback(text)
 
-    mask, coords, products = build_change_mask(plan, elevation, slope)
+    mask, coords, products = build_change_mask(
+        plan, elevation, slope, baseline_ndvi=state.get("baseline_ndvi"))
 
     water_px = int(np.sum(mask >= 1.0))
     buffer_px = int(np.sum((mask > 0) & (mask < 1.0)))

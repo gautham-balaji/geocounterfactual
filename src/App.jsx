@@ -2,15 +2,15 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Header from './components/Header';
 import SimulatorView from './components/SimulatorView';
-import AgentOrchestrationView from './components/AgentOrchestrationView';
 import MethodologyView from './components/MethodologyView';
 import { Globe2, ShieldCheck, GitBranch, Cpu, Terminal } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('simulator');
   const [activeRegionId, setActiveRegionId] = useState('anantapur');
-  // Lifted so the orchestration tab's terminal shows the same live run the
-  // simulator is driving; switching tabs mid-run must not lose the stream.
+  // The agent stream now lives inside the Command Center alongside the
+  // imagery, so the separate flowchart tab is gone. Kept lifted so a future
+  // consumer (or the methodology view) can read the same run.
   const [liveLogs, setLiveLogs] = useState([]);
 
   return (
@@ -34,18 +34,6 @@ export default function App() {
                 setActiveRegionId={setActiveRegionId}
                 onLogsChange={setLiveLogs}
               />
-            </motion.div>
-          )}
-
-          {activeTab === 'orchestration' && (
-            <motion.div
-              key="orchestration"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
-            >
-              <AgentOrchestrationView liveLogs={liveLogs} />
             </motion.div>
           )}
 

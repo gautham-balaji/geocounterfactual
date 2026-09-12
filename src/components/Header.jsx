@@ -30,9 +30,8 @@ export default function Header({ activeTab, setActiveTab }) {
         {/* Tab Navigation Pills */}
         <nav className="flex items-center gap-1 bg-darkbg-800/90 p-1 rounded-xl border border-slate-800">
           {[
-            { id: 'simulator', label: '1. Simulator', icon: Play },
-            { id: 'orchestration', label: '2. Multi-Agent Flowchart', icon: GitBranch },
-            { id: 'methodology', label: '3. Data & Methodology', icon: Database }
+            { id: 'simulator', label: '1. Command Center', icon: Play },
+            { id: 'methodology', label: '2. Data & Methodology', icon: Database }
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;

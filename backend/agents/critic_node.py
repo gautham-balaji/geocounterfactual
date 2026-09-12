@@ -156,10 +156,24 @@ def critic_node(state: GeoCounterfactualState) -> dict:
     # exhausted run "approved" here would report a physics-violating scene as
     # passing, and would zero out the violation rate that the critic-ON vs
     # critic-OFF experiment is supposed to measure.
-    return {
+    update = {
         "is_approved": approved,
         "plausibility_score": float(verdict["score"]),
         "violations": violations,
         "critic_feedback_mask": verdict["feedback_mask"],
         "execution_logs": make_logs(state, AGENT_CRITIC, entries),
     }
+
+    # Preserve every rejection so the frontend can show what was thrown out.
+    # This channel accumulates; critic_feedback_mask does not.
+    if violations:
+        update["rejection_history"] = [{
+            "iteration": iteration,
+            "score": float(verdict["score"]),
+            "violations": list(violations),
+            "mask": np.asarray(verdict["feedback_mask"], dtype=bool),
+            "rule_ids": [r.rule_id for r in (verdict.get("results") or [])
+                         if not r.passed],
+        }]
+
+    return update

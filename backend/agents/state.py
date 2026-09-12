@@ -56,8 +56,13 @@ class GeoCounterfactualState(TypedDict, total=False):
     iteration_count: int              # capped at max_critic_iterations
     plausibility_score: float         # 0.0 - 100.0
     violations: List[str]
-    critic_feedback_mask: Any         # spatial mask of rejected pixels
+    critic_feedback_mask: Any         # spatial mask of THIS pass's rejects
     is_approved: bool
+    # Every rejection, kept. critic_feedback_mask has replace semantics, so
+    # on a successful run it is all-zeros by the end -- which meant the one
+    # artifact the frontend most needs to show (what the Critic threw out)
+    # was discarded before it could be rendered.
+    rejection_history: Annotated[List[Dict[str, Any]], operator.add]
 
     # --- Streaming logs (accumulating; see module docstring) ---
     execution_logs: Annotated[List[Dict[str, str]], operator.add]
@@ -79,5 +84,6 @@ def initial_state(
         plausibility_score=0.0,
         violations=[],
         is_approved=False,
+        rejection_history=[],
         execution_logs=[],
     )

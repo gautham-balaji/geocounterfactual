@@ -72,7 +72,27 @@ def generator_node(state: GeoCounterfactualState) -> dict:
     )
 
     started = time.time()
-    result = generator.generate(request)
+    fallback_note = None
+    try:
+        result = generator.generate(request)
+    except Exception as exc:  # noqa: BLE001
+        # A free ngrok URL rotates on every Colab restart and the runtime is
+        # reaped after ~90 min idle, so the remote GPU WILL vanish mid-demo.
+        # Without this the whole request 500s. Falling back to `local` would
+        # hang a presentation for ~8 minutes on CPU, so the safety net is the
+        # stub -- instant, and loudly labelled so nobody mistakes a procedural
+        # scene for a diffusion result.
+        from backend.config import settings as _settings
+        from backend.generator.base import get_generator as _get
+
+        logger.warning("Generator '%s' failed (%s); falling back to '%s'",
+                       getattr(generator, "name", "?"), exc,
+                       _settings.generator_fallback)
+        fallback = _get(_settings.generator_fallback)
+        result = fallback.generate(request)
+        fallback_note = (f"{getattr(generator, 'name', 'primary')} backend "
+                         f"unavailable ({type(exc).__name__}); fell back to "
+                         f"'{result.backend}'. Scene is NOT diffusion output.")
     elapsed = time.time() - started
 
     if iteration == 0:
@@ -83,6 +103,8 @@ def generator_node(state: GeoCounterfactualState) -> dict:
                             f"corrected elevation mask; "
                             f"{int(np.sum(np.asarray(feedback, dtype=bool)))} "
                             f"px penalised.")]
+    if fallback_note:
+        entries.append(("warn", fallback_note))
     for note in (result.notes or []):
         entries.append(("info", note))
     entries.append(("success", f"Candidate scene generated in {elapsed:.2f}s."))

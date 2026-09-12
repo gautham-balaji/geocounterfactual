@@ -13,6 +13,7 @@ from typing import Dict, Optional, Sequence
 
 import numpy as np
 import rasterio
+from scipy import ndimage
 import matplotlib
 from matplotlib.colors import Normalize
 from PIL import Image
@@ -96,6 +97,60 @@ def render_mask_overlay(base_rgb: np.ndarray, mask: np.ndarray, path: Path,
     for c in range(3):
         out[:, :, c][m] = (1 - alpha) * out[:, :, c][m] + alpha * colour[c]
     return _save(out, path)
+
+
+def render_rgba_mask(mask: np.ndarray, path: Path,
+                     colour: Sequence[float] = (1.0, 0.15, 0.2),
+                     alpha: float = 0.72,
+                     outline_only: bool = False) -> Path:
+    """Save a boolean mask as a TRANSPARENT RGBA PNG.
+
+    render_mask_overlay bakes the tint onto an opaque base image, which means
+    the frontend can only display it as its own layer -- it can never be
+    stacked over the optical view or faded with an opacity slider. An xAI
+    overlay needs the mask itself, with alpha 0 everywhere it does not apply.
+
+    `outline_only` emits just the boundary, for showing an intervention
+    footprint without hiding the imagery underneath it.
+    """
+    mask = np.asarray(mask, dtype=bool)
+    if outline_only and mask.any():
+        eroded = ndimage.binary_erosion(mask, iterations=1)
+        mask = mask & ~eroded
+
+    h, w = mask.shape
+    rgba = np.zeros((h, w, 4), dtype=np.uint8)
+    for c in range(3):
+        rgba[:, :, c] = int(np.clip(colour[c], 0, 1) * 255)
+    rgba[:, :, 3] = (mask * int(np.clip(alpha, 0, 1) * 255)).astype(np.uint8)
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(rgba, mode="RGBA").save(path)
+    return path
+
+
+def render_rgba_diverging(values: np.ndarray, path: Path,
+                          threshold: float = 0.05,
+                          vmin: float = -0.4, vmax: float = 0.4,
+                          cmap: str = "BrBG", alpha: float = 0.80) -> Path:
+    """Save a signed field (e.g. NDVI delta) as a transparent RGBA PNG.
+
+    Pixels whose magnitude is below `threshold` get alpha 0, so the overlay
+    marks only where something actually changed rather than tinting the whole
+    frame with noise.
+    """
+    values = np.nan_to_num(np.asarray(values, dtype=np.float32))
+    norm = Normalize(vmin=vmin, vmax=vmax, clip=True)
+    coloured = matplotlib.colormaps[cmap](norm(values))
+    rgba = (coloured * 255).astype(np.uint8)
+    rgba[:, :, 3] = ((np.abs(values) >= threshold)
+                     * int(np.clip(alpha, 0, 1) * 255)).astype(np.uint8)
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(rgba, mode="RGBA").save(path)
+    return path
 
 
 def _save(array01: np.ndarray, path: Path) -> Path:

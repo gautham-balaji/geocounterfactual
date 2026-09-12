@@ -82,12 +82,15 @@ class StubGenerator(BaseGenerator):
             rgb[:, :, c][water] = value
 
         # --- greening, bounded by the dynamics NDVI ceiling -----------------
-        recharge = guidance.get("recharge_field")
-        if recharge is None:
-            recharge = buffer.astype(np.float32)
-        recharge = np.asarray(recharge, dtype=np.float32)
+        # growth_field, not recharge_field: a plantation greens without any
+        # impoundment, and keying greening off recharge made afforestation a
+        # no-op (verified: 0 px changed).
+        growth = guidance.get("growth_field", guidance.get("recharge_field"))
+        if growth is None:
+            growth = buffer.astype(np.float32)
+        growth = np.asarray(growth, dtype=np.float32)
 
-        greening = np.clip(recharge, 0.0, 1.0)
+        greening = np.clip(growth, 0.0, 1.0)
         greening[water] = 0.0
         for c, value in enumerate(VEG_RGB):
             rgb[:, :, c] = rgb[:, :, c] * (1 - greening) + value * greening

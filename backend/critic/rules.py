@@ -320,6 +320,7 @@ def rule_unchanged_ssim(
     change_mask: np.ndarray,
     min_ssim: float = 0.90,
     local_floor: float = 0.60,
+    window_radius: int = 3,
 ) -> RuleResult:
     """Terrain outside the intervention footprint must survive untouched.
 
@@ -336,7 +337,16 @@ def rule_unchanged_ssim(
     base_gray = np.asarray(np.mean(baseline_rgb, axis=-1), dtype=np.float64)
     cand_gray = np.asarray(np.mean(candidate_rgb, axis=-1), dtype=np.float64)
 
-    outside = ~(np.asarray(change_mask) > 0)
+    # Exclude a collar around the footprint. SSIM is computed over a sliding
+    # window (7x7 by default), so an UNCHANGED pixel within 3 px of a change
+    # has a window straddling the boundary and scores low through no fault of
+    # the generator. Measured: an afforestation run altered 0 pixels outside
+    # the mask and still scored SSIM 0.844 with 31611 "damaged" px, purely
+    # from boundary bleed -- which systematically penalises any intervention
+    # with a complex outline.
+    changed = np.asarray(change_mask) > 0
+    collar = ndimage.binary_dilation(changed, iterations=window_radius)
+    outside = ~collar
     if not np.any(outside):
         return RuleResult("R4", "Unchanged-area conservation", True, 0.0, "",
                           _empty(shape), {"outside_ssim": 1.0,

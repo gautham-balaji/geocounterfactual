@@ -28,6 +28,22 @@ logger = logging.getLogger(__name__)
 RECHARGE_DECAY_LENGTH_M = 120.0
 MAX_RECHARGE_DISTANCE_M = 250.0
 
+# Fraction of the absolute annual NDVI cap (settings.max_annual_ndvi_delta)
+# that each intervention type can realistically achieve in a semi-arid,
+# largely rainfed setting. The cap is the Critic's hard limit; these are the
+# typical envelopes the Dynamics agent holds the generator to.
+GROWTH_RATE_BY_TYPE = {
+    "check_dam": 1.00,        # riparian belt on a recharged channel
+    "farm_pond": 0.85,
+    "percolation_pit": 0.60,
+    "contour_bund": 0.55,
+    "afforestation": 0.45,    # rainfed plantation: slower than riparian
+}
+
+# How far vegetation establishment bleeds past a planted boundary.
+PLANTATION_EDGE_DECAY_M = 40.0
+MAX_PLANTATION_SPREAD_M = 80.0
+
 
 def infiltration_field(core_mask: np.ndarray, cell_size: float) -> np.ndarray:
     """Normalised (0-1) recharge influence decaying away from surface water."""
@@ -40,8 +56,65 @@ def infiltration_field(core_mask: np.ndarray, cell_size: float) -> np.ndarray:
     return field.astype(np.float32)
 
 
+def plantation_field(treated: np.ndarray, cell_size: float) -> np.ndarray:
+    """Growth potential for a DIRECTLY PLANTED area.
+
+    Afforestation does not depend on a surface-water recharge plume -- the
+    trees are put in the ground and survive on rainfall. Its growth potential
+    is therefore ~1 across the planted polygon, decaying just past the edge
+    as seedlings spread, rather than radiating from an impoundment.
+    """
+    if not np.any(treated):
+        return np.zeros(treated.shape, dtype=np.float32)
+    outside_m = ndimage.distance_transform_edt(~treated) * cell_size
+    field = np.exp(-outside_m / PLANTATION_EDGE_DECAY_M)
+    # Hard cutoff: exp() never reaches zero, so without it every pixel in the
+    # scene picks up a trace of greening and the generator reports a change
+    # across the whole frame for a 150 ha plantation.
+    field[outside_m > MAX_PLANTATION_SPREAD_M] = 0.0
+    field[treated] = 1.0
+    return field.astype(np.float32)
+
+
+def growth_potential(change_mask: np.ndarray, structure_type: str,
+                     cell_size: float) -> tuple:
+    """Return (growth_field, recharge_field) for this intervention.
+
+    These are two different physical quantities and conflating them was a
+    real bug: the original code derived BOTH from the surface-water core, so
+    an afforestation plan -- which creates no impoundment -- got a recharge
+    field of all zeros, hence a growth ceiling of exactly the baseline, hence
+    a generator that changed nothing at all. Verified: 0 pixels altered.
+
+    Water interventions drive growth through recharge. Planting drives growth
+    directly. Moisture, by contrast, only rises where there IS water, so the
+    recharge field stays empty for a plantation and the moisture layer
+    correctly reports no gain.
+    """
+    mask = np.asarray(change_mask, dtype=np.float32)
+    water_core = mask >= 1.0
+    treated = mask > 0.0
+
+    recharge = infiltration_field(water_core, cell_size)
+    growth = (recharge if np.any(water_core)
+              else plantation_field(treated, cell_size))
+
+    # The growth field drives what the generator repaints, so it MUST NOT
+    # extend past the declared change mask -- rule 4 rejects any alteration
+    # outside that footprint, and it is right to. Both fields naturally spill
+    # beyond it (recharge to 250 m, plantation to 80 m) while the mask's
+    # buffer is narrower, which had the generator greening 51868 px of
+    # "unchanged" ground and the loop burning its whole retry budget.
+    #
+    # recharge_field is deliberately left unclipped: groundwater genuinely
+    # does not respect our polygon, and the moisture layer should show that.
+    # Only the generator's instruction is constrained.
+    return (growth * treated.astype(np.float32)), recharge
+
+
 def ndvi_growth_ceiling(baseline_ndvi: np.ndarray, recharge: np.ndarray,
-                        years: int, slope: np.ndarray) -> np.ndarray:
+                        years: int, slope: np.ndarray,
+                        rate_factor: float = 1.0) -> np.ndarray:
     """Maximum physically defensible NDVI after `years`.
 
     Three constraints compose:
@@ -49,7 +122,7 @@ def ndvi_growth_ceiling(baseline_ndvi: np.ndarray, recharge: np.ndarray,
       * available moisture -- growth scales with recharge influence,
       * terrain -- steep ground holds less soil and water, so it greens less.
     """
-    annual_cap = settings.max_annual_ndvi_delta
+    annual_cap = settings.max_annual_ndvi_delta * float(rate_factor)
     slope_factor = np.clip(1.0 - (slope / 30.0), 0.2, 1.0)
     achievable = annual_cap * years * recharge * slope_factor
     # Semi-arid canopy saturates well below rainforest density.
@@ -91,16 +164,20 @@ def dynamics_node(state: GeoCounterfactualState) -> dict:
     slope = state["dem_slope"]
     rgb = state["baseline_optical_rgb"]
 
-    core = np.asarray(change_mask) >= 1.0
-    recharge = infiltration_field(core, cell_size)
-    ceiling = ndvi_growth_ceiling(baseline_ndvi, recharge, years, slope)
+    plan = state.get("intervention_plan") or {}
+    structure_type = str(plan.get("structure_type", "check_dam"))
+    rate_factor = GROWTH_RATE_BY_TYPE.get(structure_type, 1.0)
+
+    growth, recharge = growth_potential(change_mask, structure_type, cell_size)
+    ceiling = ndvi_growth_ceiling(baseline_ndvi, growth, years, slope,
+                                  rate_factor=rate_factor)
 
     conditioning = build_conditioning_map(
-        rgb, slope, change_mask, recharge,
+        rgb, slope, change_mask, growth,
         feedback_mask=state.get("critic_feedback_mask"),
     )
 
-    influenced = int(np.sum(recharge > 0.05))
+    influenced = int(np.sum(growth > 0.05))
     max_delta = float(np.max(ceiling - baseline_ndvi)) if ceiling.size else 0.0
 
     guidance: Dict[str, Any] = {
@@ -110,18 +187,22 @@ def dynamics_node(state: GeoCounterfactualState) -> dict:
         "recharge_decay_length_m": RECHARGE_DECAY_LENGTH_M,
         "max_recharge_distance_m": MAX_RECHARGE_DISTANCE_M,
         "max_slope_for_water_deg": settings.max_slope_for_water_deg,
+        "structure_type": structure_type,
+        "growth_rate_factor": rate_factor,
         "ndvi_ceiling": ceiling,
+        "growth_field": growth,
         "recharge_field": recharge,
         "influenced_cells": influenced,
         "influenced_area_ha": influenced * cell_size ** 2 / 10_000.0,
     }
 
+    driver = ("recharge plume from surface water" if np.any(recharge > 0.05)
+              else "direct planting (rainfed, no impoundment)")
     entries = [
-        ("info", f"Recharge plume modelled: {influenced} cells "
-                 f"({guidance['influenced_area_ha']:.1f} ha) within "
-                 f"{MAX_RECHARGE_DISTANCE_M:.0f} m of surface water."),
-        ("info", f"NDVI growth envelope for {years} yr: "
-                 f"max delta {max_delta:+.3f} "
+        ("info", f"Growth driver: {driver}. {influenced} cells "
+                 f"({guidance['influenced_area_ha']:.1f} ha) influenced."),
+        ("info", f"NDVI growth envelope for {years} yr ({structure_type}, "
+                 f"rate x{rate_factor:.2f}): max delta {max_delta:+.3f} "
                  f"(hard cap {settings.max_annual_ndvi_delta * years:+.2f})."),
         ("success", f"Conditioning tensor built: {conditioning.shape[2]} channels "
                     f"at {conditioning.shape[0]}x{conditioning.shape[1]}."),

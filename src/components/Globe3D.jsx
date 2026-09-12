@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { MapPin, Navigation, Compass } from 'lucide-react';
 
-export default function Globe3D({ regions, selectedRegionId, onSelectRegion }) {
+export default function Globe3D({ regions, selectedRegionId, onSelectRegion,
+                                  onPickTarget = null, freeTarget = null }) {
   const mountRef = useRef(null);
   const [hoveredRegion, setHoveredRegion] = useState(null);
   const [isRotating, setIsRotating] = useState(true);
@@ -192,18 +193,44 @@ export default function Globe3D({ regions, selectedRegionId, onSelectRegion }) {
       isMouseDown = false;
     };
 
+    // Free navigation: wheel zoom, clamped so the globe cannot be entered
+    // or lost off-screen.
+    const handleWheel = (e) => {
+      e.preventDefault();
+      const next = camera.position.z + e.deltaY * 0.12;
+      camera.position.z = Math.max(95, Math.min(420, next));
+    };
+
     const handleClick = () => {
       raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects(markerMeshes);
 
-      if (intersects.length > 0) {
-        const region = intersects[0].object.userData.region;
-        onSelectRegion(region.id);
+      // A pilot marker always wins: it is the only thing that can arm a
+      // simulation, so it must stay easy to hit.
+      const hits = raycaster.intersectObjects(markerMeshes);
+      if (hits.length > 0) {
+        onSelectRegion(hits[0].object.userData.region.id);
+        return;
       }
+
+      // Otherwise convert the click on the globe surface into a real
+      // lat/lng. The user can inspect anywhere on Earth; whether that
+      // target is SIMULATABLE is decided upstream by comparing it with the
+      // verified pilot zones.
+      if (!onPickTarget) return;
+      const surface = raycaster.intersectObject(globeMesh);
+      if (surface.length === 0) return;
+
+      // Undo the globe group's rotation to get a point in globe-local space.
+      const local = globeGroup.worldToLocal(surface[0].point.clone());
+      const r = local.length();
+      const lat = 90 - (Math.acos(local.y / r) * 180) / Math.PI;
+      const lng = ((Math.atan2(local.z, -local.x) * 180) / Math.PI + 180) % 360 - 180;
+      onPickTarget({ lat: Number(lat.toFixed(4)), lng: Number(lng.toFixed(4)) });
     };
 
     const domElement = renderer.domElement;
     domElement.addEventListener('mousedown', handleMouseDown);
+    domElement.addEventListener('wheel', handleWheel, { passive: false });
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     domElement.addEventListener('click', handleClick);
@@ -244,6 +271,7 @@ export default function Globe3D({ regions, selectedRegionId, onSelectRegion }) {
     return () => {
       cancelAnimationFrame(animationFrameId);
       domElement.removeEventListener('mousedown', handleMouseDown);
+      domElement.removeEventListener('wheel', handleWheel);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
       domElement.removeEventListener('click', handleClick);
@@ -252,7 +280,7 @@ export default function Globe3D({ regions, selectedRegionId, onSelectRegion }) {
         currentMount.removeChild(renderer.domElement);
       }
     };
-  }, [regions, selectedRegionId, onSelectRegion, isRotating]);
+  }, [regions, selectedRegionId, onSelectRegion, onPickTarget, isRotating]);
 
   const selectedRegion = regions.find(r => r.id === selectedRegionId);
 

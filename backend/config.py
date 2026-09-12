@@ -109,6 +109,9 @@ class Settings(BaseSettings):
     # --- Generator backend: stub | local | remote (see generator/base.py) ---
     generator_backend: str = "stub"
     remote_generator_url: Optional[str] = None
+    # Used when the primary backend raises (expired ngrok tunnel, dead Colab
+    # runtime). "stub" is instant; "local" would stall a demo for minutes.
+    generator_fallback: str = "stub"
 
     # --- Data engine ---
     target_scale_m: int = 10
