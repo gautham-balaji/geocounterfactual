@@ -24,14 +24,18 @@ import numpy as np
 class GenerationRequest:
     """Everything a generator needs for one synthesis pass."""
 
-    baseline_rgb: np.ndarray               # (H, W, 3) reflectance
-    conditioning_map: np.ndarray           # (H, W, C) from dynamics node
+    baseline_rgb: np.ndarray               # (H, W, 3) surface reflectance 0-1
+    conditioning_map: np.ndarray           # (H, W, 5) from dynamics node
     change_mask: np.ndarray                # weighted intervention footprint
     dynamics_guidance: Dict[str, Any]
     prompt: str
     iteration: int = 0
     feedback_mask: Optional[np.ndarray] = None   # critic-rejected pixels
     violations: Optional[list] = None
+    # Needed to calibrate a reflectance->NDVI mapping per scene, since an
+    # RGB diffusion backbone cannot emit a NIR band directly.
+    baseline_ndvi: Optional[np.ndarray] = None
+    dem_slope: Optional[np.ndarray] = None
 
 
 @dataclass

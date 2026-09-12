@@ -67,6 +67,8 @@ def generator_node(state: GeoCounterfactualState) -> dict:
         iteration=iteration,
         feedback_mask=feedback,
         violations=violations,
+        baseline_ndvi=state.get("baseline_ndvi"),
+        dem_slope=state.get("dem_slope"),
     )
 
     started = time.time()
