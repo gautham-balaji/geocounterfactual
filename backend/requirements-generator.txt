@@ -1,0 +1,17 @@
+# GeoCounterfactual backend - diffusion generator deps (Phase 4 only).
+# Split out so Phase 1-3 development does not require a ~2 GB install.
+#
+# Install CPU-only torch (this machine has no NVIDIA GPU - Intel Iris Xe):
+#   pip install -r requirements-generator.txt \
+#       --extra-index-url https://download.pytorch.org/whl/cpu
+#
+# On the Colab T4 side (GENERATOR_BACKEND=remote), install without the
+# extra-index-url so the CUDA build is selected instead.
+
+-r requirements.txt
+
+torch>=2.4,<2.6
+diffusers>=0.30
+transformers>=4.44
+accelerate>=0.33
+safetensors>=0.4
