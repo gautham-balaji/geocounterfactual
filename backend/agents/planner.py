@@ -224,6 +224,8 @@ def build_change_mask(
             sites, filled, accumulation,
             impound_height_m=plan.impound_height_m,
             cell_size=cell_size,
+            slope=slope,
+            max_water_slope_deg=settings.max_slope_for_water_deg,
         )
         buffer = terrain.buffer_mask(core, plan.buffer_radius_m, cell_size)
 

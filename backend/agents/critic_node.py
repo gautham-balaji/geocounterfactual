@@ -1,13 +1,14 @@
 """Node 5: Physical-Plausibility Critic -- graph adapter.
 
-SCOPE NOTE. Phase 2 delivers the graph wiring and a PROVISIONAL evaluator that
-implements rule 1 only (gravity / water on slopes). That is enough to prove
-the cyclic edge fires, rejects, and converges.
+The physics lives in critic/physics_critic.py and critic/rules.py; this module
+only adapts it to the graph and turns a verdict into execution_logs.
 
-Phase 3 replaces `ProvisionalCritic` with the full engine in
-critic/physics_critic.py -- rules 2 (NDVI growth ceiling), 3 (red-edge
-spectral consistency) and 4 (unchanged-area SSIM) plus proper scoring. The
-evaluator is injected through set_critic(), so that swap touches no graph code.
+The evaluator is injected via set_critic(), which is how the ablation swaps in
+critic_off() or a single-rule critic without touching any graph code.
+
+ProvisionalCritic (rule 1 only) is retained below as a lightweight, dependency
+-free evaluator for fast graph smoke tests; PhysicalPlausibilityCritic is the
+default.
 """
 
 from __future__ import annotations
@@ -93,7 +94,12 @@ class ProvisionalCritic:
         }
 
 
-_critic: CriticProtocol = ProvisionalCritic()
+def _default_critic() -> CriticProtocol:
+    from backend.critic.physics_critic import PhysicalPlausibilityCritic
+    return PhysicalPlausibilityCritic()
+
+
+_critic: CriticProtocol = _default_critic()
 
 
 def set_critic(critic: CriticProtocol) -> None:
@@ -115,6 +121,15 @@ def critic_node(state: GeoCounterfactualState) -> dict:
     exhausted = iteration >= settings.max_critic_iterations
 
     entries = []
+
+    # Per-rule audit line -- drives the critic checklist in MetricsPanel.jsx
+    # and makes it visible which physical law fired, not just that one did.
+    results = verdict.get("results") or []
+    if results:
+        audit = ", ".join(
+            f"{r.rule_id} {'pass' if r.passed else 'FAIL'}" for r in results)
+        entries.append(("info", f"Physics audit [{audit}]"))
+
     if approved:
         entries.append(
             ("success", f"Passed all checks with {verdict['score']:.0f}% "

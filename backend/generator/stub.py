@@ -38,6 +38,10 @@ class StubGenerator(BaseGenerator):
         # control arm in the critic-ON vs critic-OFF experiment.
         self.simulate_hallucination = simulate_hallucination
         self.spill_radius_px = spill_radius_px
+        # Rejections accumulate across a run. Applying only the newest mask
+        # lets previously-retracted water reappear on the next pass, so the
+        # loop oscillates instead of converging.
+        self._retracted: Optional[np.ndarray] = None
 
     def generate(self, request: GenerationRequest) -> GenerationResult:
         rgb = np.array(request.baseline_rgb, dtype=np.float32, copy=True)
@@ -47,6 +51,9 @@ class StubGenerator(BaseGenerator):
 
         core = mask >= 1.0
         buffer = (mask > 0.0) & (mask < 1.0)
+
+        if request.iteration == 0:
+            self._retracted = np.zeros(core.shape, dtype=bool)
 
         water = core.copy()
 
@@ -60,10 +67,15 @@ class StubGenerator(BaseGenerator):
 
         # --- honour critic feedback on regeneration -------------------------
         if request.feedback_mask is not None:
-            rejected = np.asarray(request.feedback_mask, dtype=bool)
-            removed = int(np.sum(water & rejected))
-            water &= ~rejected
-            notes.append(f"Retracted water from {removed} critic-rejected cells.")
+            if self._retracted is None:
+                self._retracted = np.zeros(core.shape, dtype=bool)
+            self._retracted |= np.asarray(request.feedback_mask, dtype=bool)
+
+        if self._retracted is not None and np.any(self._retracted):
+            removed = int(np.sum(water & self._retracted))
+            water &= ~self._retracted
+            notes.append(f"Retracted water from {removed} cells "
+                         f"({int(self._retracted.sum())} rejected cumulatively).")
 
         # --- paint water ----------------------------------------------------
         for c, value in enumerate(WATER_RGB):

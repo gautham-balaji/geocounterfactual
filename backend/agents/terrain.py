@@ -231,6 +231,8 @@ def impoundment_mask(
     max_radius_m: float = 400.0,
     cell_size: float = 10.0,
     stream_threshold: int = 400,
+    slope: Optional[np.ndarray] = None,
+    max_water_slope_deg: float = 2.5,
 ) -> np.ndarray:
     """Water surface that forms behind each dam.
 
@@ -268,6 +270,15 @@ def impoundment_mask(
         channelised = accumulation >= min(0.10 * accumulation[r, c],
                                           float(stream_threshold))
         candidate = near & below_crest & channelised
+
+        # Water cannot rest on ground steeper than the Critic's gravity
+        # limit. Omitting this lets the Planner site pool cells that rule 1
+        # will reject on every single iteration, so the feedback loop can
+        # never converge -- the generator keeps being told to remove water
+        # the planner keeps putting back. Planner and Critic must share the
+        # same physics.
+        if slope is not None:
+            candidate &= np.asarray(slope) <= max_water_slope_deg
 
         # Keep only the blob physically connected to the dam. 8-connectivity
         # is required: ndimage.label defaults to a 4-neighbourhood, under
