@@ -9,6 +9,9 @@ import { Globe2, ShieldCheck, GitBranch, Cpu, Terminal } from 'lucide-react';
 export default function App() {
   const [activeTab, setActiveTab] = useState('simulator');
   const [activeRegionId, setActiveRegionId] = useState('anantapur');
+  // Lifted so the orchestration tab's terminal shows the same live run the
+  // simulator is driving; switching tabs mid-run must not lose the stream.
+  const [liveLogs, setLiveLogs] = useState([]);
 
   return (
     <div className="min-h-screen bg-darkbg-900 text-slate-100 flex flex-col selection:bg-cyan-500 selection:text-black bg-tech-grid">
@@ -29,6 +32,7 @@ export default function App() {
               <SimulatorView
                 activeRegionId={activeRegionId}
                 setActiveRegionId={setActiveRegionId}
+                onLogsChange={setLiveLogs}
               />
             </motion.div>
           )}
@@ -41,7 +45,7 @@ export default function App() {
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.25 }}
             >
-              <AgentOrchestrationView />
+              <AgentOrchestrationView liveLogs={liveLogs} />
             </motion.div>
           )}
 

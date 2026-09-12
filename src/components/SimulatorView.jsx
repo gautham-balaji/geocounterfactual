@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import { Sparkles, Play, RotateCcw, MapPin, Send, Cpu, CheckCircle2, AlertTriangle, Layers } from 'lucide-react';
 import Globe3D from './Globe3D';
 import SatelliteSlider from './SatelliteSlider';
 import MetricsPanel from './MetricsPanel';
 import { MOCK_REGIONS } from '../data/mockData';
+import { simulateStreaming, checkHealth } from '../services/api';
 
-export default function SimulatorView({ activeRegionId, setActiveRegionId }) {
+export default function SimulatorView({ activeRegionId, setActiveRegionId, onLogsChange }) {
   const selectedRegion = MOCK_REGIONS.find(r => r.id === activeRegionId) || MOCK_REGIONS[0];
   const [selectedPresetId, setSelectedPresetId] = useState(selectedRegion.presets[0]?.id || 'checkdams');
   const [inputText, setInputText] = useState(selectedRegion.presets[0]?.text || '');
@@ -14,6 +15,16 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId }) {
 
   const [isSimulating, setIsSimulating] = useState(false);
   const [simStep, setSimStep] = useState(0); // 0 = idle, 1..5 = steps, 6 = completed
+  const [result, setResult] = useState(null);
+  const [backend, setBackend] = useState({ online: false });
+
+  // Probe once so the banner can say honestly whether the numbers on screen
+  // came from the pipeline or from mock data.
+  useEffect(() => {
+    let cancelled = false;
+    checkHealth().then((h) => { if (!cancelled) setBackend(h); });
+    return () => { cancelled = true; };
+  }, []);
 
   const activePreset = selectedRegion.presets.find(p => p.id === selectedPresetId) || selectedRegion.presets[0];
 
@@ -22,26 +33,48 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId }) {
     setInputText(preset.text);
   };
 
-  const handleRunSimulation = () => {
+  // Node completion order -> the 5-step progress bar.
+  const NODE_STEP = {
+    input_handler: 1, planner: 2, dynamics: 3, generator: 4, critic: 5,
+  };
+
+  const handleRunSimulation = async () => {
     setIsSimulating(true);
     setSimStep(1);
+    setResult(null);
+    onLogsChange?.([]);
 
-    // Simulate multi-step agent pipeline execution
-    setTimeout(() => setSimStep(2), 700);
-    setTimeout(() => setSimStep(3), 1500);
-    setTimeout(() => setSimStep(4), 2200);
-    setTimeout(() => setSimStep(5), 3000); // Critic rejection check & loop
-    setTimeout(() => {
-      setSimStep(6);
-      setIsSimulating(false);
-      // Trigger festive success confetti
+    // The progress bar is now driven by real node completions rather than
+    // five hardcoded setTimeouts, so it tracks the pipeline -- including the
+    // critic sending the generator back around.
+    const collected = [];
+    const payload = await simulateStreaming({
+      regionId: selectedRegion.id,
+      interventionText: inputText,
+      targetYears: 5,
+      onNode: ({ node, logs }) => {
+        if (logs?.length) {
+          collected.push(...logs);
+          onLogsChange?.([...collected]);
+        }
+        const step = NODE_STEP[node];
+        if (step) setSimStep(step);
+      },
+    });
+
+    setResult(payload);
+    if (payload.execution_logs?.length) onLogsChange?.(payload.execution_logs);
+    setSimStep(6);
+    setIsSimulating(false);
+
+    if (payload.is_approved !== false) {
       confetti({
         particleCount: 50,
         spread: 60,
         origin: { y: 0.7 },
         colors: ['#10b981', '#06b6d4', '#3b82f6']
       });
-    }, 3800);
+    }
   };
 
   return (
@@ -195,6 +228,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId }) {
         <div className="lg:col-span-7 space-y-6">
           {/* Before & After Satellite Image Slider */}
           <SatelliteSlider
+            imagery={result?.imagery ?? null}
             region={selectedRegion}
             activePreset={activePreset}
             activeLayer={activeLayer}
@@ -206,6 +240,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId }) {
             selectedRegion={selectedRegion}
             activePreset={activePreset}
             simulationResult={simStep === 6}
+            liveResult={result}
           />
         </div>
       </div>

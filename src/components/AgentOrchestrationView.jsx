@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText,
@@ -18,15 +18,32 @@ import {
 } from 'lucide-react';
 import { MOCK_AGENT_NODES, MOCK_CRITIC_CHATTER } from '../data/mockData';
 
-export default function AgentOrchestrationView() {
+// Agent names emitted by backend/agents/logs.py -> flowchart node ids.
+const AGENT_TO_NODE = {
+  'Input Handler': 'node-1',
+  'Intervention-Planner': 'node-2',
+  'Eco-Hydrological Dynamics': 'node-3',
+  'Generator (Diffusion)': 'node-4',
+  'Physical-Plausibility Critic': 'node-5',
+};
+
+export default function AgentOrchestrationView({ liveLogs = null, isRunning = false }) {
   const [activeStep, setActiveStep] = useState(1);
   const [isPlaying, setIsPlaying] = useState(true);
   const [playbackSpeed, setPlaybackSpeed] = useState(1500); // ms per step
   const [activeNodeId, setActiveNodeId] = useState('node-1');
+  const terminalRef = useRef(null);
 
-  // Auto playback of agent steps
+  // When the backend is streaming, its logs replace the canned chatter and
+  // the simulated playback timer stands down -- the real pipeline sets the
+  // pace. With no backend the original demo loop is untouched.
+  const isLive = Array.isArray(liveLogs) && liveLogs.length > 0;
+  const logs = isLive ? liveLogs : MOCK_CRITIC_CHATTER;
+  const visibleCount = isLive ? logs.length : activeStep;
+
+  // Auto playback of agent steps (mock mode only)
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying || isLive) return;
     const interval = setInterval(() => {
       setActiveStep((prev) => {
         const next = prev >= MOCK_CRITIC_CHATTER.length ? 1 : prev + 1;
@@ -41,13 +58,32 @@ export default function AgentOrchestrationView() {
     }, playbackSpeed);
 
     return () => clearInterval(interval);
-  }, [isPlaying, playbackSpeed]);
+  }, [isPlaying, playbackSpeed, isLive]);
+
+  // In live mode the highlighted node follows whichever agent last spoke.
+  useEffect(() => {
+    if (!isLive) return;
+    const last = logs[logs.length - 1];
+    const nodeId = AGENT_TO_NODE[last?.agent];
+    if (nodeId) setActiveNodeId(nodeId);
+  }, [isLive, logs]);
+
+  // Keep the newest line in view; a jury demo should not need scrolling.
+  useEffect(() => {
+    const el = terminalRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [visibleCount]);
 
   const handleStepForward = () => {
     setActiveStep((prev) => (prev >= MOCK_CRITIC_CHATTER.length ? 1 : prev + 1));
   };
 
-  const isCriticLoopActive = activeStep === 7 || activeStep === 8 || activeStep === 9;
+  // The critic loop is "hot" whenever a rejection is the most recent verdict
+  // and the generator is retrying -- derived from the logs in live mode
+  // rather than from hardcoded step numbers.
+  const isCriticLoopActive = isLive
+    ? logs.slice(-3).some((l) => l.type === 'reject')
+    : activeStep === 7 || activeStep === 8 || activeStep === 9;
 
   return (
     <div className="space-y-6">
@@ -117,7 +153,7 @@ export default function AgentOrchestrationView() {
             <span className="flex items-center gap-1.5 text-cyan-400 font-bold">
               <GitBranch className="w-4 h-4" /> CYCLIC AGENT STATE MACHINE
             </span>
-            <span className="text-slate-500">Step {activeStep} of {MOCK_CRITIC_CHATTER.length}</span>
+            <span className="text-slate-500">Step {visibleCount} of {logs.length}{isLive ? ' · LIVE' : ''}</span>
           </div>
 
           {/* Nodes Container */}
@@ -269,10 +305,11 @@ export default function AgentOrchestrationView() {
           </div>
 
           {/* Terminal Output Window */}
-          <div className="bg-darkbg-900/90 rounded-xl p-4 border border-slate-800 h-[500px] overflow-y-auto space-y-3 text-xs">
-            {MOCK_CRITIC_CHATTER.slice(0, activeStep).map((log, index) => {
+          <div ref={terminalRef} className="bg-darkbg-900/90 rounded-xl p-4 border border-slate-800 h-[500px] overflow-y-auto space-y-3 text-xs">
+            {logs.slice(0, visibleCount).map((log, index) => {
               const isReject = log.type === 'reject';
-              const isWarning = log.type === 'warning';
+              // Backend emits 'warn'; the mock chatter uses 'warning'.
+              const isWarning = log.type === 'warning' || log.type === 'warn';
               const isSuccess = log.type === 'success';
 
               return (

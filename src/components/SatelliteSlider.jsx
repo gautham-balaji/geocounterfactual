@@ -1,9 +1,23 @@
 import React, { useState } from 'react';
 import { Layers, Sliders, Maximize2, ShieldCheck, Eye, Sparkles } from 'lucide-react';
 
-export default function SatelliteSlider({ region, activePreset, activeLayer, setActiveLayer }) {
+// Maps the layer-selector ids to the keys in the backend's `imagery` payload.
+const LAYER_TO_IMAGERY_KEY = {
+  optical: 'optical',
+  ndvi: 'ndvi',
+  moisture: 'moisture',
+  critic_mask: 'critic',
+};
+
+export default function SatelliteSlider({ region, activePreset, activeLayer, setActiveLayer, imagery = null }) {
   const [sliderPosition, setSliderPosition] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Real rasters when the backend supplied them; otherwise the original
+  // client-side SVG scene, so the demo still works with the backend down.
+  const imageryKey = LAYER_TO_IMAGERY_KEY[activeLayer] ?? 'optical';
+  const layerUrls = imagery?.[imageryKey] ?? null;
+  const hasRaster = Boolean(layerUrls?.before && layerUrls?.after);
 
   const handleMouseMove = (e) => {
     if (!isDragging) return;
@@ -63,7 +77,9 @@ export default function SatelliteSlider({ region, activePreset, activeLayer, set
       >
         {/* Layer 1: AFTER (Generated Counterfactual Scene - Base Layer) */}
         <div className="absolute inset-0 w-full h-full">
-          <SatelliteImageGraphics layer={activeLayer} mode="after" region={region} />
+          {hasRaster
+            ? <RasterLayer src={layerUrls.after} alt="Generated counterfactual scene" />
+            : <SatelliteImageGraphics layer={activeLayer} mode="after" region={region} />}
           {/* Top Right Label */}
           <div className="absolute top-4 right-4 z-10 bg-emerald-950/80 backdrop-blur-md border border-emerald-500/60 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-glow-emerald">
             <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
@@ -73,14 +89,20 @@ export default function SatelliteSlider({ region, activePreset, activeLayer, set
           </div>
         </div>
 
-        {/* Layer 2: BEFORE (Baseline Sentinel-2 Image - Clipped Layer) */}
+        {/* Layer 2: BEFORE (Baseline Sentinel-2 Image - Clipped Layer)
+            clip-path keeps this layer at full container size and simply hides
+            the right-hand part, so BEFORE and AFTER stay pixel-registered.
+            The previous approach shrank the wrapper and propped it open with
+            a fixed minWidth, which cannot align two real georeferenced
+            rasters -- the baseline would slide as the handle moved. */}
         <div
-          className="absolute top-0 left-0 bottom-0 overflow-hidden"
-          style={{ width: `${sliderPosition}%` }}
+          className="absolute inset-0 w-full h-full"
+          style={{ clipPath: `inset(0 ${100 - sliderPosition}% 0 0)` }}
         >
-          <div className="relative w-full h-full" style={{ width: '100%', minWidth: '700px' }}>
-            {/* Note: We force width equal to container parent */}
-            <SatelliteImageGraphics layer={activeLayer} mode="before" region={region} />
+          <div className="relative w-full h-full">
+            {hasRaster
+              ? <RasterLayer src={layerUrls.before} alt="Baseline Sentinel-2 scene" />
+              : <SatelliteImageGraphics layer={activeLayer} mode="before" region={region} />}
             {/* Top Left Label */}
             <div className="absolute top-4 left-4 z-10 bg-slate-900/80 backdrop-blur-md border border-slate-700 px-3 py-1.5 rounded-lg flex items-center gap-2">
               <Eye className="w-3.5 h-3.5 text-slate-400" />
@@ -114,6 +136,37 @@ export default function SatelliteSlider({ region, activePreset, activeLayer, set
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Renders a georeferenced PNG produced by the backend.
+ *
+ * `object-cover` with a fixed transform origin, identical on both halves, is
+ * what keeps BEFORE and AFTER registered: the two rasters share a grid and an
+ * affine transform on the server, and any difference in how they are fitted
+ * here would break that correspondence and make the comparison meaningless.
+ */
+function RasterLayer({ src, alt }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-darkbg-900 text-slate-500 text-xs font-mono">
+        Raster unavailable
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      draggable={false}
+      onError={() => setFailed(true)}
+      className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+      style={{ imageRendering: 'auto' }}
+    />
   );
 }
 
