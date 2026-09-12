@@ -102,7 +102,9 @@ class Settings(BaseSettings):
     # Model id is configurable rather than hardcoded: the available Gemini
     # model names move, and a stale literal would surface as a runtime 404.
     gemini_api_key: Optional[str] = None
-    gemini_model: str = "gemini-2.5-flash"
+    # Verified present in the live models.list() for this key alongside
+    # gemini-3.5-flash. Override with GEMINI_MODEL.
+    gemini_model: str = "gemini-3.8-flash"
 
     # --- Generator backend: stub | local | remote (see generator/base.py) ---
     generator_backend: str = "stub"
