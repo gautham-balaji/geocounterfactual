@@ -126,7 +126,16 @@ def ndvi_growth_ceiling(baseline_ndvi: np.ndarray, recharge: np.ndarray,
     slope_factor = np.clip(1.0 - (slope / 30.0), 0.2, 1.0)
     achievable = annual_cap * years * recharge * slope_factor
     # Semi-arid canopy saturates well below rainforest density.
-    return np.clip(baseline_ndvi + achievable, -1.0, 0.75).astype(np.float32)
+    saturated = np.clip(baseline_ndvi + achievable, -1.0, 0.75)
+
+    # The ceiling caps GROWTH; it must never sit below what is already
+    # there. Without this floor, any pixel of existing dense canopy --
+    # an irrigated field or orchard, NDVI up to 0.79 in Anantapur -- ends up
+    # above its own ceiling and violates rule 2 with zero change applied.
+    # Those pixels cannot be fixed by regenerating, because the generator
+    # never touched them, so the critic loop burned its entire retry budget
+    # on 34 unfixable pixels every single run.
+    return np.maximum(baseline_ndvi, saturated).astype(np.float32)
 
 
 def build_conditioning_map(
