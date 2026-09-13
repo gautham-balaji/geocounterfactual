@@ -22,6 +22,8 @@ dist/
 
 # ---- Backend generated artifacts ----
 backend/data/cache/
+backend/data/candidates/
+backend/data/pairs/
 backend/static/
 backend/outputs/
 *.tif
