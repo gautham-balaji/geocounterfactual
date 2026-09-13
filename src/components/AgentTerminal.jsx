@@ -72,7 +72,7 @@ export default function AgentTerminal({
         {shown === 0 && (
           <div className="h-full flex items-center justify-center">
             <span className="font-mono text-micro text-ink-tertiary">
-              awaiting simulation
+              idle
             </span>
           </div>
         )}

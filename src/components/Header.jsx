@@ -27,7 +27,7 @@ export default function Header({ activeTab, setActiveTab }) {
 
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-surface-base/85 backdrop-blur-xl">
-      <div className="max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-12 h-16 flex items-center justify-between gap-8">
+      <div className="max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 h-14 flex items-center justify-between gap-8">
         {/* Wordmark */}
         <button
           onClick={() => setActiveTab('simulator')}
@@ -55,7 +55,7 @@ export default function Header({ activeTab, setActiveTab }) {
                 key={id}
                 onClick={() => setActiveTab(id)}
                 className={cn(
-                  'relative flex items-center gap-2 px-3 h-16 text-label font-medium',
+                  'relative flex items-center gap-2 px-3 h-14 text-label font-medium',
                   'transition-colors duration-150',
                   isActive
                     ? 'text-ink-primary'

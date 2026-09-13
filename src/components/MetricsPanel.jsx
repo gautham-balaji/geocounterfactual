@@ -4,10 +4,10 @@ import { TrendingUp, Droplets, Activity, CheckCircle2, AlertTriangle } from 'luc
 import { cn, Label, Panel, Badge, ModelledBadge, Divider } from './ui/primitives';
 
 const RULE_ROWS = [
-  { id: 'R1', label: 'Gravity / slope invariance', detail: 'Water bodies restricted to slope < 2.5°' },
-  { id: 'R2', label: 'NDVI growth ceiling', detail: 'Capped by rate, moisture and terrain' },
-  { id: 'R3', label: 'Spectral consistency', detail: 'Visible greening must show an NIR response' },
-  { id: 'R4', label: 'Unchanged-area conservation', detail: 'SSIM outside the footprint ≥ 0.90' },
+  { id: 'R1', label: 'Gravity / slope', detail: 'Water restricted to slope < 2.5°' },
+  { id: 'R2', label: 'Growth ceiling', detail: 'Capped by rate, moisture, terrain' },
+  { id: 'R3', label: 'Spectral consistency', detail: 'Greening must show NIR response' },
+  { id: 'R4', label: 'Area conservation', detail: 'SSIM outside footprint ≥ 0.90' },
 ];
 
 const RING_R = 30;
@@ -29,8 +29,8 @@ export default function MetricsPanel({ selectedRegion, activePreset,
         rejectionReason:
           liveResult.rejection_history?.[0]?.violations?.[0] ??
           (liveResult.is_approved
-            ? 'Approved on the first pass — no physics violations detected.'
-            : 'Retry budget exhausted with violations outstanding.'),
+            ? 'Approved on the first pass. No physics violations detected.'
+            : 'Retry budget exhausted. Violations outstanding.'),
       }
     : activePreset?.metricsDelta || {
         ndviDelta: '+0.18', soilMoistureDelta: '+14%', waterRetentionDelta: '+28%',
@@ -54,7 +54,7 @@ export default function MetricsPanel({ selectedRegion, activePreset,
 
   /**
    * Replaces the confetti burst. A full-marks run gets one quiet pulse of
-   * the ring — the celebration belonged to a consumer app, and a physics
+   * the ring. The celebration belonged to a consumer app, and a physics
    * validation result reporting 100% should look like an instrument
    * settling, not a party.
    */
@@ -68,18 +68,18 @@ export default function MetricsPanel({ selectedRegion, activePreset,
   }, [perfect, liveResult?.run_id]);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* ---- Plausibility ---- */}
-      <Panel className="space-y-6">
+      <Panel className="space-y-5" inset>
         <div className="flex items-start justify-between gap-6">
           <div className="min-w-0 space-y-2">
-            <Label>Physical plausibility audit</Label>
+            <Label>Plausibility</Label>
             <h3 className="text-h2 font-medium text-ink-primary">
-              Critic validation
+              Critic verdict
             </h3>
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <Badge tone={isLive ? 'positive' : 'neutral'}>
-                {isLive ? 'Live pipeline' : 'Mock data'}
+                {isLive ? 'Live' : 'Mock'}
               </Badge>
               {isLive && liveResult?.scene_source && (
                 <Badge tone="info">
@@ -149,13 +149,13 @@ export default function MetricsPanel({ selectedRegion, activePreset,
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-line rounded-xl overflow-hidden border border-line">
         {[
           { icon: TrendingUp, label: 'NDVI delta', value: metrics.ndviDelta,
-            caption: 'Biomass index, 5-year', modelled: false },
+            caption: 'Biomass index, 5 yr', modelled: false },
           { icon: Droplets, label: 'Soil moisture', value: metrics.soilMoistureDelta,
-            caption: 'Groundwater recharge plume', modelled: true },
+            caption: 'Recharge plume', modelled: true },
           { icon: Activity, label: 'Runoff retention', value: metrics.waterRetentionDelta,
-            caption: 'Monsoon capture volume', modelled: true },
+            caption: 'Monsoon capture', modelled: true },
         ].map(({ icon: Icon, label, value, caption, modelled }) => (
-          <div key={label} className="bg-surface-1 px-5 py-5 space-y-2">
+          <div key={label} className="bg-surface-1 px-4 py-4 space-y-1.5">
             <div className="flex items-center justify-between">
               <Label>{label}</Label>
               <Icon className="w-3.5 h-3.5 text-ink-tertiary" strokeWidth={1.75} />
@@ -170,9 +170,9 @@ export default function MetricsPanel({ selectedRegion, activePreset,
       </div>
 
       {/* ---- Rule matrix ---- */}
-      <Panel className="space-y-4">
+      <Panel className="space-y-3" inset>
         <div className="flex items-center justify-between">
-          <Label>Compliance matrix</Label>
+          <Label>Rule compliance</Label>
           <span className={cn('font-mono text-micro',
             passCount === 4 ? 'text-positive' : 'text-critical')}>
             {passCount}/4 passed
@@ -185,7 +185,7 @@ export default function MetricsPanel({ selectedRegion, activePreset,
             return (
               <div
                 key={item.id}
-                className="flex items-center justify-between gap-4 py-2.5 border-b border-line/60 last:border-0"
+                className="flex items-center justify-between gap-4 py-2 border-b border-line/60 last:border-0"
               >
                 <div className="min-w-0 flex items-start gap-3">
                   <span className="font-mono text-micro text-ink-tertiary pt-0.5 w-5 shrink-0">

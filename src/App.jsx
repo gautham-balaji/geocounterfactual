@@ -35,7 +35,7 @@ export default function App() {
         >
           <Header activeTab={activeTab} setActiveTab={setActiveTab} />
 
-          <main className="flex-1 w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-12 py-10 lg:py-14">
+          <main className="flex-1 w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 py-6 lg:py-8">
             <AnimatePresence mode="wait">
               {activeTab === 'simulator' && (
                 <motion.div
@@ -67,10 +67,10 @@ export default function App() {
             </AnimatePresence>
           </main>
 
-          <footer className="border-t border-line py-6">
-            <div className="max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-12 flex flex-col sm:flex-row items-center justify-between gap-4 text-micro text-ink-tertiary">
+          <footer className="border-t border-line py-4">
+            <div className="max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-10 flex flex-col sm:flex-row items-center justify-between gap-3 text-micro text-ink-tertiary">
               <span>
-                GeoCounterfactual — final-year engineering research prototype
+                GeoCounterfactual · final-year engineering research prototype
               </span>
               <div className="flex items-center gap-6">
                 <span className="flex items-center gap-1.5">

@@ -35,9 +35,9 @@ export default function RegionPicker({ regions, selectedId, onSelect,
   const shown = grouped.reduce((n, [, rs]) => n + rs.length, 0);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <Label>Target watershed</Label>
+        <Label>Target</Label>
         <span className="flex items-center gap-1.5 text-micro text-ink-tertiary">
           <ShieldCheck className="w-3 h-3" strokeWidth={2} />
           <span className="font-mono">
@@ -55,7 +55,7 @@ export default function RegionPicker({ regions, selectedId, onSelect,
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter by district, state or zone"
+          placeholder="Filter watersheds"
           className={cn(
             'w-full h-9 pl-9 pr-3 rounded-lg text-label',
             'bg-surface-2 border border-line text-ink-primary placeholder-ink-tertiary',
@@ -65,7 +65,7 @@ export default function RegionPicker({ regions, selectedId, onSelect,
         />
       </div>
 
-      <div className="max-h-[280px] overflow-y-auto -mx-1 px-1">
+      <div className="max-h-[210px] overflow-y-auto -mx-1 px-1">
         {grouped.length === 0 && (
           <div className="py-8 text-center text-micro text-ink-tertiary">
             No watershed matches “{query}”.

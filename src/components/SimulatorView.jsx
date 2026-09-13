@@ -132,38 +132,37 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
   };
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-6">
       {/* Region header */}
-      <div className="flex flex-wrap items-end justify-between gap-6 pb-8 border-b border-line">
-        <div className="space-y-2 min-w-0">
-          <Label>Counterfactual simulator</Label>
-          <h2 className="text-h1 font-medium text-ink-primary truncate">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-10 gap-y-3 pb-5 border-b border-line">
+        <div className="flex items-baseline gap-3 min-w-0">
+          <h2 className="text-h2 font-medium text-ink-primary truncate">
             {selectedRegion.name}
           </h2>
-          <p className="text-label text-ink-tertiary">
+          <span className="text-label text-ink-tertiary truncate">
             {selectedRegion.state}
-          </p>
+          </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-10 gap-y-4">
+        <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2">
           {[
-            ['Climate zone', selectedRegion.climateZone],
-            ['Baseline NDVI', selectedRegion.baselineMetrics.ndvi],
-            ['Built-up', selectedRegion.baselineMetrics.builtUp ?? '—'],
-            ['Rainfall', selectedRegion.baselineMetrics.rainfall],
+            ['Zone', selectedRegion.climateZone],
+            ['NDVI', selectedRegion.baselineMetrics.ndvi],
+            ['Built-up', selectedRegion.baselineMetrics.builtUp ?? 'n/a'],
+            ['Rain', selectedRegion.baselineMetrics.rainfall],
           ].map(([label, value]) => (
-            <div key={label} className="space-y-1">
+            <div key={label} className="flex items-baseline gap-2">
               <Label>{label}</Label>
-              <div className="font-mono text-label text-ink-primary">{value}</div>
+              <span className="font-mono text-label text-ink-secondary">{value}</span>
             </div>
           ))}
         </div>
       </div>
 
       {/* Main Grid: Left Control Panel vs Right Visual Output */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 xl:gap-16 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 xl:gap-10 items-start">
         {/* Left Column (5/12): 3D Globe + Intervention Input Panel */}
-        <div className="lg:col-span-5 space-y-10">
+        <div className="lg:col-span-5 space-y-6">
           {/* 3D Interactive Rotating Earth Globe */}
           <Globe3D
             regions={MOCK_REGIONS}
@@ -176,7 +175,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
           {/* Target status: free navigation is always allowed, simulation is
               not. Saying exactly why is better than a dead button. */}
           <div className={cn(
-            'rounded-lg border px-4 py-3 flex items-start gap-3',
+            'rounded-lg border px-3.5 py-2.5 flex items-start gap-2.5',
             targetIsVerified
               ? 'border-line bg-surface-1'
               : 'border-caution/30 bg-caution/5',
@@ -185,9 +184,9 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
               <>
                 <CheckCircle2 className="w-4 h-4 text-positive shrink-0 mt-0.5" strokeWidth={1.75} />
                 <div>
-                  <div className="text-label text-ink-primary">Verified pilot zone</div>
-                  <div className="text-micro text-ink-tertiary mt-1 leading-relaxed">
-                    {selectedRegion.name} — calibrated baseline, DEM and cloud-free window on file.
+                  <div className="text-label text-ink-primary">Verified zone</div>
+                  <div className="text-micro text-ink-tertiary mt-0.5">
+                    Baseline, DEM and cloud-free window on file.
                   </div>
                 </div>
               </>
@@ -197,15 +196,15 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
                 <div className="flex-1">
                   <div className="text-label text-caution">Unverified target</div>
                   <div className="text-micro text-ink-tertiary mt-1 leading-relaxed">
-                    {freeTarget.lat.toFixed(3)}°, {freeTarget.lng.toFixed(3)}° has no calibrated
-                    baseline or agro-climatic validation. Explore freely; simulation is
-                    restricted to the {MOCK_REGIONS.length} pilot watersheds.
+                    {freeTarget.lat.toFixed(3)}°, {freeTarget.lng.toFixed(3)}° has no calibrated baseline.
+                    Explore freely. Simulation is restricted to the
+                    {MOCK_REGIONS.length} verified watersheds.
                   </div>
                   <button
                     onClick={() => setFreeTarget(null)}
                     className="mt-2.5 px-2.5 h-7 rounded-md bg-surface-2 hover:bg-surface-3 text-ink-secondary hover:text-ink-primary text-micro border border-line transition-colors duration-150"
                   >
-                    Return to {selectedRegion.name.split(',')[0]}
+                    Reset target
                   </button>
                 </div>
               </>
@@ -220,7 +219,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
           />
 
           {/* Intervention Input Box & Preset Buttons */}
-          <div className="space-y-6">
+          <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Send className="w-3.5 h-3.5 text-ink-tertiary" strokeWidth={1.75} />
@@ -233,8 +232,8 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
               <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                rows={3}
-                placeholder="Describe your rural land intervention in natural language (e.g. 'Build 3 check-dams along stream bed')..."
+                rows={2}
+                placeholder="e.g. Build 3 check-dams along the main stream bed"
                 className="w-full rounded-lg bg-surface-2 border border-line hover:border-line-strong focus:border-accent focus:outline-none p-3.5 text-body text-ink-primary placeholder-ink-tertiary resize-none transition-colors duration-150"
               />
               <div className="absolute bottom-3 right-3 font-mono text-micro text-ink-tertiary">
@@ -288,12 +287,12 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
               {isSimulating ? (
                 <>
                   <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                  Running pipeline
+                  Running
                 </>
               ) : !targetIsVerified ? (
-                'Select a verified pilot zone'
+                'Select a verified zone'
               ) : (
-                'Simulate counterfactual'
+                'Run simulation'
               )}
             </Button>
 
@@ -301,7 +300,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
             {isSimulating && (
               <div className="p-4 rounded-lg bg-surface-2 border border-line space-y-3">
                 <div className="flex items-center justify-between">
-                  <Label>Orchestrating agents</Label>
+                  <Label>Pipeline</Label>
                   <span className="font-mono text-micro text-ink-secondary">{simStep} / 5</span>
                 </div>
                 <div className="w-full bg-surface-3 h-1 rounded-full overflow-hidden">
@@ -328,7 +327,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
                       <Icon className="w-3.5 h-3.5 text-accent-soft shrink-0" strokeWidth={1.75} />
                       <span className="truncate">
                         <span className="text-ink-primary">{agent}</span>
-                        <span className="text-ink-tertiary"> \u2014 {detail}</span>
+                        <span className="text-ink-tertiary">{detail}</span>
                       </span>
                     </span>
                   );
@@ -340,7 +339,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
         </div>
 
         {/* Right Column (7/12): Satellite Slider + xAI + live terminal */}
-        <div className="lg:col-span-7 space-y-10">
+        <div className="lg:col-span-7 space-y-6">
           {/* Before & After Satellite Image Slider */}
           <SatelliteSlider
             imagery={result?.imagery ?? null}
@@ -384,7 +383,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
           {/* Command-center side-by-side: the agent stream sits next to the
               imagery, so the Critic's rejection and the pixels it rejected
               are visible in one glance instead of on separate tabs. */}
-          <div className="grid grid-cols-1 xl:grid-cols-5 gap-8 items-start">
+          <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
             <div className="xl:col-span-2 space-y-4">
               <PipelineRail
                 logs={logs}
@@ -397,7 +396,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
                 logs={logs}
                 isLive={logs.length > 0}
                 isRunning={isSimulating}
-                heightClass="h-[360px]"
+                heightClass="h-[300px]"
                 title="AGENT CHATTER"
               />
             </div>

@@ -60,10 +60,10 @@ export default function SatelliteSlider({
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       {/* Layer Selector Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <Label>Spectral band</Label>
+        <Label>Band</Label>
         <div className="flex items-center gap-1 overflow-x-auto">
           {[
             { id: 'optical', label: 'Optical RGB' },
@@ -91,7 +91,8 @@ export default function SatelliteSlider({
       {/* Main Image Slider Viewport */}
       <div
         ref={viewportRef}
-        className="relative w-full h-[520px] rounded-xl overflow-hidden bg-surface-1 border border-line select-none cursor-ew-resize"
+        style={{ height: 'clamp(320px, 46vh, 520px)' }}
+        className="relative w-full rounded-xl overflow-hidden bg-surface-1 border border-line select-none cursor-ew-resize"
         onMouseDown={() => setIsDragging(true)}
         onMouseUp={() => setIsDragging(false)}
         onMouseLeave={() => { setIsDragging(false); setCursor(null); }}
@@ -113,7 +114,7 @@ export default function SatelliteSlider({
           <div className="absolute top-4 right-4 z-10 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-base/80 backdrop-blur-md border border-line">
             <Sparkles className="w-3 h-3 text-accent-soft" strokeWidth={1.75} />
             <span className="text-micro text-ink-primary">
-              After — simulated
+              After · simulated
             </span>
             {/* Moisture is the Dynamics agent's own prediction, not an
                 observation. Saying so on the image removes the sharpest
@@ -145,7 +146,7 @@ export default function SatelliteSlider({
             <div className="absolute top-4 left-4 z-10 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-base/80 backdrop-blur-md border border-line">
               <Eye className="w-3 h-3 text-ink-tertiary" strokeWidth={1.75} />
               <span className="text-micro text-ink-secondary">
-                Before — baseline
+                Before · baseline
               </span>
             </div>
           </div>

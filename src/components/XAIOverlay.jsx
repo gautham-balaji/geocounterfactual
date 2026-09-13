@@ -14,7 +14,7 @@ import { cn, Label, Badge } from './ui/primitives';
 export const OVERLAY_DEFS = [
   {
     id: 'rejection',
-    label: 'Critic rejection',
+    label: 'Rejection',
     icon: AlertTriangle,
     colour: 'text-critical border-critical/40 bg-critical/10',
     // The headline artifact: what the Critic threw out on its first pass.
@@ -27,7 +27,7 @@ export const OVERLAY_DEFS = [
   },
   {
     id: 'footprint',
-    label: 'Intervention footprint',
+    label: 'Footprint',
     icon: Square,
     colour: 'text-info border-info/40 bg-info/10',
     describe: (s) => s?.footprint_px
@@ -37,7 +37,7 @@ export const OVERLAY_DEFS = [
   },
   {
     id: 'impoundment',
-    label: 'Impounded water',
+    label: 'Impoundment',
     icon: Droplets,
     colour: 'text-accent-soft border-accent/40 bg-accent-subtle',
     describe: (s) => s?.impoundment_px
@@ -58,7 +58,7 @@ export const OVERLAY_DEFS = [
     label: 'Slope > 2.5°',
     icon: Mountain,
     colour: 'text-caution border-caution/40 bg-caution/10',
-    describe: () => 'where rule R1 forbids standing water',
+    describe: () => 'R1 forbids standing water here',
     modelled: false,
   },
 ];
@@ -90,12 +90,12 @@ export function XAIToolbar({ overlays, stats, active, onToggle,
   const disabled = !overlays;
 
   return (
-    <div className="rounded-xl bg-surface-1 border border-line p-5 space-y-5">
+    <div className="rounded-xl bg-surface-1 border border-line p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <Label>Explainability overlays</Label>
+        <Label>Overlays</Label>
         {disabled && (
           <span className="text-micro text-ink-tertiary">
-            run a simulation to enable
+            run a simulation
           </span>
         )}
       </div>
@@ -131,7 +131,7 @@ export function XAIToolbar({ overlays, stats, active, onToggle,
         })}
       </div>
 
-      <div className="flex flex-wrap items-center gap-4 pt-4 border-t border-line">
+      <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-line">
         <button
           disabled={disabled}
           onClick={onAmplify}
@@ -165,7 +165,7 @@ export function XAIToolbar({ overlays, stats, active, onToggle,
               : 'bg-transparent text-ink-tertiary border-line hover:bg-surface-2 hover:text-ink-secondary',
             disabled && 'opacity-40 cursor-not-allowed',
           )}
-          title="Alternate before/after in place - far better than a slider for spotting small changes"
+          title="Alternate before/after in place"
         >
           A/B Blink
         </button>
