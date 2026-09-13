@@ -27,10 +27,12 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
+from scipy import ndimage
 from skimage.feature import canny
 
 from backend.config import settings
@@ -73,6 +75,8 @@ class LocalDiffusionGenerator(BaseGenerator):
         composite_unchanged: bool = True,
         seed: int = 42,
         device: str = "cpu",
+        patch_mode: Optional[bool] = None,
+        lora_path: Optional[str] = None,
     ):
         self.model_id = model_id
         self.conditioning_mode = conditioning_mode
@@ -84,12 +88,25 @@ class LocalDiffusionGenerator(BaseGenerator):
         self.composite_unchanged = composite_unchanged
         self.seed = seed
         self.device = device
+        # Patch mode is on whenever a fine-tuned adapter exists, because the
+        # adapter is only valid at the scale it was trained on.
+        self.lora_path = (lora_path if lora_path is not None
+                          else (str(settings.lora_weights_path)
+                                if settings.lora_weights_path
+                                and Path(settings.lora_weights_path).is_file()
+                                else None))
+        self.patch_mode = (bool(self.lora_path) if patch_mode is None
+                           else patch_mode)
         self._pipe = None
         self._rejected_so_far: Optional[np.ndarray] = None
 
     def describe(self) -> str:
-        return (f"local SD1.5-inpaint + ControlNet-{self.conditioning_mode} "
-                f"@{self.num_inference_steps} steps on {self.device}")
+        mode = (f"patch {settings.generation_patch_span_m}m"
+                if self.patch_mode else "whole-scene")
+        lora = "+LoRA" if self.lora_path else "base"
+        return (f"local SD1.5-inpaint{lora} "
+                f"+ ControlNet-{self.conditioning_mode} "
+                f"@{self.num_inference_steps} steps, {mode}, {self.device}")
 
     # -- model ------------------------------------------------------------
 
@@ -134,6 +151,25 @@ class LocalDiffusionGenerator(BaseGenerator):
         pipe.set_progress_bar_config(disable=True)
         if self.device == "cpu":
             pipe.enable_attention_slicing()   # trades a little speed for RAM
+
+        if self.lora_path:
+            from safetensors.torch import load_file
+            raw = load_file(self.lora_path)
+            # get_peft_model_state_dict(unet) exports keys relative to the
+            # UNet, but load_lora_weights looks for a "unet." prefix. Without
+            # it diffusers logs "No LoRA keys associated to
+            # UNet2DConditionModel", leaves active_adapters empty, and runs
+            # the BASE model -- a silent no-op rather than an error.
+            prefixed = {(k if k.startswith("unet.") else f"unet.{k}"): v
+                        for k, v in raw.items()}
+            pipe.load_lora_weights(prefixed, adapter_name="geocf")
+            active = pipe.get_active_adapters()
+            if not active:
+                raise RuntimeError(
+                    f"LoRA at {self.lora_path} loaded no adapters; refusing "
+                    f"to run as if fine-tuned.")
+            pipe.set_adapters(active, adapter_weights=[settings.lora_scale])
+            logger.info("LoRA active: %s @ %.2f", active, settings.lora_scale)
 
         logger.info("Pipeline ready in %.1fs", time.time() - t0)
         self._pipe = pipe
@@ -307,6 +343,88 @@ class LocalDiffusionGenerator(BaseGenerator):
         return np.clip(np.asarray(baseline_ndvi, dtype=np.float32) + delta,
                        -1.0, 1.0).astype(np.float32)
 
+
+    # -- patch planning ----------------------------------------------------
+
+    def _windows(self, editable: np.ndarray) -> List[Tuple[int, int, int, int]]:
+        """Pick 1280 m windows covering the editable region.
+
+        Derived from the mask rather than from target_stream_coords so this
+        works for every intervention type -- afforestation sites no dams and
+        would otherwise get no windows at all.
+
+        Windows are centred on connected components, largest first, and a
+        component already covered by an accepted window is skipped so three
+        adjacent pool fragments do not become three near-identical passes.
+        """
+        span_px = max(8, settings.generation_patch_span_m // settings.target_scale_m)
+        h, w = editable.shape
+        labels, n = ndimage.label(
+            editable, structure=ndimage.generate_binary_structure(2, 2))
+        if n == 0:
+            return []
+
+        sizes = ndimage.sum(editable, labels, range(1, n + 1))
+        order = np.argsort(sizes)[::-1]
+        centres = ndimage.center_of_mass(editable, labels, range(1, n + 1))
+
+        windows: List[Tuple[int, int, int, int]] = []
+        covered = np.zeros_like(editable, dtype=bool)
+
+        for idx in order:
+            if len(windows) >= settings.max_patches_per_scene:
+                break
+            blob = labels == (idx + 1)
+            # Skip if this component is already inside an accepted window.
+            if covered[blob].mean() > 0.8:
+                continue
+            cy, cx = centres[idx]
+            r0 = int(np.clip(round(cy) - span_px // 2, 0, max(0, h - span_px)))
+            c0 = int(np.clip(round(cx) - span_px // 2, 0, max(0, w - span_px)))
+            r1, c1 = min(h, r0 + span_px), min(w, c0 + span_px)
+            windows.append((r0, c0, r1, c1))
+            covered[r0:r1, c0:c1] = True
+
+        return windows
+
+    def _run_pipe(self, base_rgb, editable, cond, request, negative, lo, hi):
+        """One inpainting pass over an arbitrary array, returning reflectance."""
+        import torch
+
+        out_px = settings.generation_patch_px
+        img_u8, _, _ = self._to_uint8(base_rgb)
+        base_img = img_u8.resize((out_px, out_px), Image.BILINEAR)
+        mask_img = Image.fromarray((editable * 255).astype(np.uint8)).resize(
+            (out_px, out_px), Image.NEAREST)
+
+        if self.conditioning_mode == "depth":
+            hint = np.clip(cond[:, :, 1], 0, 1)
+        else:
+            hint = canny(cond[:, :, 0].astype(np.float64), sigma=1.6).astype(np.float32)
+        control_img = Image.fromarray(
+            (np.dstack([hint] * 3) * 255).astype(np.uint8)).resize(
+            (out_px, out_px), Image.NEAREST)
+
+        pipe = self._load_pipeline()
+        generator = torch.Generator(device=self.device).manual_seed(
+            self.seed + request.iteration)
+        result = pipe(
+            prompt=request.prompt, negative_prompt=negative,
+            image=base_img, mask_image=mask_img, control_image=control_img,
+            num_inference_steps=self.num_inference_steps,
+            guidance_scale=self.guidance_scale,
+            controlnet_conditioning_scale=self.controlnet_conditioning_scale,
+            strength=self.strength, height=out_px, width=out_px,
+            generator=generator,
+        ).images[0]
+
+        # Back to the window's native pixel grid, then to reflectance using
+        # the stretch bounds of the FULL scene, not this window: per-window
+        # bounds would make each patch tone-shift against its surroundings.
+        native = result.resize((base_rgb.shape[1], base_rgb.shape[0]),
+                               Image.BILINEAR)
+        return self._from_uint8(native, lo, hi)
+
     # -- generate ----------------------------------------------------------
 
     def generate(self, request: GenerationRequest) -> GenerationResult:
@@ -348,6 +466,81 @@ class LocalDiffusionGenerator(BaseGenerator):
                                         request.baseline_ndvi),
                 backend=self.name, notes=notes)
 
+        # ---- patch mode ---------------------------------------------------
+        # The adapter was trained on 1280 m rendered to 512 px (2.5 m/px).
+        # Running it over a whole 4.4 km scene resized to ~448 px would be
+        # 10 m/px, a 4x scale mismatch against everything it learned. So we
+        # generate per-window at the training scale and composite back.
+        if self.patch_mode:
+            # Inpaint the STRUCTURE, not the whole footprint.
+            #
+            # The change mask is core impoundment plus a ~150 m riparian
+            # buffer, which is 43.5% of a 1280 m window. The adapter was
+            # trained on centred ellipses covering 0.8-3.5% of the frame, so
+            # handing it 43.5% is a different task entirely: measured output
+            # was amorphous blobs with the underlying field texture
+            # destroyed. Restricted to the core the mask is 1.1%, inside the
+            # training distribution.
+            #
+            # The buffer is a vegetation response, not a built structure;
+            # it is handled by the dynamics-driven greening rather than by
+            # the diffusion model.
+            core = np.asarray(request.change_mask, dtype=np.float32) >= 1.0
+            if self._rejected_so_far is not None:
+                core = core & ~self._rejected_so_far
+            patch_mask = core if core.any() else mask_arr
+            if core.any():
+                notes.append(
+                    f"Inpainting the impoundment core only "
+                    f"({100 * core.mean():.2f}% of scene); the riparian "
+                    f"buffer is left to the dynamics greening.")
+            else:
+                notes.append("No impoundment core; adapter is out of "
+                             "distribution for this intervention type.")
+
+            windows = self._windows(patch_mask)
+            if not windows:
+                notes.append("No window covers the editable region; "
+                             "returning the baseline unchanged.")
+                return GenerationResult(
+                    rgb=base_rgb.copy(),
+                    ndvi=self._predict_ndvi(base_rgb, base_rgb,
+                                            request.baseline_ndvi),
+                    backend=self.name, notes=notes)
+
+            cond_full = np.asarray(request.conditioning_map, dtype=np.float32)
+            generated = base_rgb.copy()
+            started = time.time()
+
+            for n, (r0, c0, r1, c1) in enumerate(windows, 1):
+                win_mask = patch_mask[r0:r1, c0:c1]
+                if not win_mask.any():
+                    continue
+                patch = self._run_pipe(
+                    base_rgb[r0:r1, c0:c1], win_mask,
+                    cond_full[r0:r1, c0:c1], request, negative, lo, hi)
+                # Composite only inside the editable region of this window,
+                # so neighbouring windows cannot overwrite each other's
+                # untouched context and leave visible seams.
+                sel = win_mask.astype(bool)
+                for ch in range(3):
+                    generated[r0:r1, c0:c1, ch][sel] = patch[:, :, ch][sel]
+
+            elapsed = time.time() - started
+            span = settings.generation_patch_span_m
+            notes.append(
+                f"Patch mode: {len(windows)} window(s) of {span} m at "
+                f"{settings.generation_patch_px} px in {elapsed:.1f}s "
+                f"({elapsed / max(len(windows), 1):.1f}s each).")
+            if self.lora_path:
+                notes.append(f"Fine-tuned adapter applied at scale "
+                             f"{settings.lora_scale}.")
+
+            ndvi = self._predict_ndvi(base_rgb, generated, request.baseline_ndvi)
+            return GenerationResult(rgb=generated, ndvi=ndvi,
+                                    backend=self.name, notes=notes)
+
+        # ---- whole-scene mode (no adapter) --------------------------------
         pipe = self._load_pipeline()
         generator = torch.Generator(device=self.device).manual_seed(
             self.seed + request.iteration)

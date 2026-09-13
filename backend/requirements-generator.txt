@@ -15,3 +15,6 @@ diffusers>=0.30
 transformers>=4.44
 accelerate>=0.33
 safetensors>=0.4
+# Required by diffusers.load_lora_weights(); without it the call
+# raises "PEFT backend is required" and the fine-tune cannot load.
+peft>=0.12

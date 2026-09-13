@@ -234,6 +234,18 @@ class Settings(BaseSettings):
     # runtime). "stub" is instant; "local" would stall a demo for minutes.
     generator_fallback: str = "stub"
 
+    # --- Fine-tuned adapter and the scale it was trained at ---
+    # MUST match extract_pairs --patch-span-m / --out-px. The LoRA learned
+    # structures at 1280 m rendered to 512 px (2.5 m/px). Generating over a
+    # whole 4.4 km scene resized to ~448 px is 10 m/px, a 4x difference,
+    # and shows the adapter terrain at a scale it never saw.
+    generation_patch_span_m: int = 1280
+    generation_patch_px: int = 512
+    max_patches_per_scene: int = 8
+    lora_weights_path: Optional[Path] = (
+        BACKEND_DIR / "generator" / "weights" / "geocf_lora.safetensors")
+    lora_scale: float = 0.85
+
     # --- Data engine ---
     target_scale_m: int = 10
     cloud_score_threshold: float = 0.60

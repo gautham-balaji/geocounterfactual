@@ -31,6 +31,16 @@ from pydantic import BaseModel
 MODEL_ID = "stable-diffusion-v1-5/stable-diffusion-inpainting"
 CONTROLNET_CANNY = "lllyasviel/control_v11p_sd15_canny"
 
+# Must match backend/config.py generation_patch_span_m / _px and the
+# extract_pairs run that produced the training set. The adapter is only
+# valid at the scale it was trained on.
+PATCH_SPAN_M = 1280
+PATCH_PX = 512
+SCALE_M = 10
+MAX_PATCHES = 8
+LORA_PATH = "/content/geocf_lora.safetensors"   # upload alongside this file
+LORA_SCALE = 0.85
+
 NEGATIVE_PROMPT = (
     "blurry, distorted, cartoon, painting, illustration, text, watermark, "
     "buildings on water, water on hillside, lake on slope, unnatural colours, "
@@ -109,6 +119,24 @@ def get_pipeline():
         variant="fp16", use_safetensors=True,
         safety_checker=None, requires_safety_checker=False)
     pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
+
+    import os
+    if os.path.isfile(LORA_PATH):
+        from safetensors.torch import load_file
+        raw = load_file(LORA_PATH)
+        # get_peft_model_state_dict exports UNet-relative keys; without the
+        # "unet." prefix diffusers logs a warning, activates nothing, and
+        # silently runs the base model.
+        prefixed = {(k if k.startswith("unet.") else f"unet.{k}"): v
+                    for k, v in raw.items()}
+        pipe.load_lora_weights(prefixed, adapter_name="geocf")
+        active = pipe.get_active_adapters()
+        if not active:
+            raise RuntimeError("LoRA loaded no adapters; refusing to run as "
+                               "if fine-tuned.")
+        pipe.set_adapters(active, adapter_weights=[LORA_SCALE])
+        print("LoRA active:", active, "@", LORA_SCALE)
+
     pipe = pipe.to(device)
     pipe.set_progress_bar_config(disable=True)
     if device == "cuda":
@@ -116,6 +144,32 @@ def get_pipeline():
         pipe.enable_attention_slicing()
     _PIPE = pipe
     return pipe
+
+
+def plan_windows(editable, span_px, max_patches=MAX_PATCHES):
+    """1280 m windows covering the editable region, largest blob first."""
+    from scipy import ndimage
+    h, w = editable.shape
+    labels, n = ndimage.label(
+        editable, structure=ndimage.generate_binary_structure(2, 2))
+    if n == 0:
+        return []
+    sizes = ndimage.sum(editable, labels, range(1, n + 1))
+    centres = ndimage.center_of_mass(editable, labels, range(1, n + 1))
+    windows, covered = [], np.zeros_like(editable, dtype=bool)
+    for idx in np.argsort(sizes)[::-1]:
+        if len(windows) >= max_patches:
+            break
+        blob = labels == (idx + 1)
+        if covered[blob].mean() > 0.8:
+            continue
+        cy, cx = centres[idx]
+        r0 = int(np.clip(round(cy) - span_px // 2, 0, max(0, h - span_px)))
+        c0 = int(np.clip(round(cx) - span_px // 2, 0, max(0, w - span_px)))
+        r1, c1 = min(h, r0 + span_px), min(w, c0 + span_px)
+        windows.append((r0, c0, r1, c1))
+        covered[r0:r1, c0:c1] = True
+    return windows
 
 
 def round8(n: int) -> int:
@@ -217,7 +271,6 @@ def generate(req: GenerateRequest):
     baseline_ndvi = decode(req.baseline_ndvi)
 
     h, w = base_rgb.shape[:2]
-    gen_h, gen_w = round8(h), round8(w)
 
     editable = np.asarray(change_mask, dtype=np.float32) > 0
     if feedback is not None:
@@ -231,14 +284,7 @@ def generate(req: GenerateRequest):
                 "notes": ["Editable region empty; baseline returned."],
                 "device": "cuda" if torch.cuda.is_available() else "cpu"}
 
-    base_img, lo, hi = to_uint8(base_rgb)
-    base_img = base_img.resize((gen_w, gen_h), Image.BILINEAR)
-    mask_img = Image.fromarray((editable * 255).astype(np.uint8)).resize(
-        (gen_w, gen_h), Image.NEAREST)
-    edges = canny(cond[:, :, 0].astype(np.float64), sigma=1.6).astype(np.float32)
-    control_img = Image.fromarray(
-        (np.dstack([edges] * 3) * 255).astype(np.uint8)).resize(
-        (gen_w, gen_h), Image.NEAREST)
+    _, lo, hi = to_uint8(base_rgb)
 
     negative = NEGATIVE_PROMPT
     if feedback is not None and np.any(feedback):
@@ -250,21 +296,47 @@ def generate(req: GenerateRequest):
     generator = torch.Generator(device=device).manual_seed(42 + req.iteration)
 
     t0 = time.time()
-    out = pipe(prompt=req.prompt, negative_prompt=negative,
-               image=base_img, mask_image=mask_img, control_image=control_img,
-               num_inference_steps=20, guidance_scale=7.5,
-               controlnet_conditioning_scale=0.8, strength=0.85,
-               height=gen_h, width=gen_w, generator=generator)
+    # Structure only, not the riparian buffer: the adapter trained on masks
+    # covering 0.8-3.5% of the frame, and the full footprint is ~43%.
+    core = (np.asarray(change_mask, dtype=np.float32) >= 1.0)
+    if feedback is not None:
+        core = core & ~(np.asarray(feedback) > 0)
+    patch_mask = core if core.any() else editable
+    span_px = max(8, PATCH_SPAN_M // SCALE_M)
+    windows = plan_windows(patch_mask, span_px)
+    generated = base_rgb.copy()
+
+    for (r0, c0, r1, c1) in windows:
+        win_mask = patch_mask[r0:r1, c0:c1]
+        if not win_mask.any():
+            continue
+        win_rgb = base_rgb[r0:r1, c0:c1]
+        wi, _, _ = to_uint8(win_rgb)
+        wi = wi.resize((PATCH_PX, PATCH_PX), Image.BILINEAR)
+        wm = Image.fromarray((win_mask * 255).astype(np.uint8)).resize(
+            (PATCH_PX, PATCH_PX), Image.NEAREST)
+        we = canny(cond[r0:r1, c0:c1, 0].astype(np.float64),
+                   sigma=1.6).astype(np.float32)
+        wc = Image.fromarray((np.dstack([we] * 3) * 255).astype(np.uint8)).resize(
+            (PATCH_PX, PATCH_PX), Image.NEAREST)
+
+        out = pipe(prompt=req.prompt, negative_prompt=negative,
+                   image=wi, mask_image=wm, control_image=wc,
+                   num_inference_steps=20, guidance_scale=7.5,
+                   controlnet_conditioning_scale=0.8, strength=0.85,
+                   height=PATCH_PX, width=PATCH_PX, generator=generator)
+        # Scene-wide stretch bounds, not per-window: per-window bounds make
+        # each patch tone-shift against its surroundings.
+        native = out.images[0].resize((c1 - c0, r1 - r0), Image.BILINEAR)
+        patch = from_uint8(native, lo, hi)
+        sel = win_mask.astype(bool)
+        for c in range(3):
+            generated[r0:r1, c0:c1, c][sel] = patch[:, :, c][sel]
+
     infer_s = time.time() - t0
+    notes.append(f"{len(windows)} window(s) of {PATCH_SPAN_M} m at {PATCH_PX} px")
 
-    result = out.images[0].resize((w, h), Image.BILINEAR)
-    generated = from_uint8(result, lo, hi)
-
-    keep = ~editable
-    for c in range(3):
-        generated[:, :, c][keep] = base_rgb[:, :, c][keep]
-
-    notes.append(f"GPU inference {infer_s:.1f}s at {gen_w}x{gen_h}; "
+    notes.append(f"GPU inference {infer_s:.1f}s over {len(windows)} patch(es); "
                  f"total {time.time() - t_start:.1f}s.")
     return {"rgb": encode(generated),
             "ndvi": encode(predict_ndvi(base_rgb, generated, baseline_ndvi)),
