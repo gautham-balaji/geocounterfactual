@@ -10,6 +10,7 @@ import XAIOverlay, { XAIToolbar } from './XAIOverlay';
 import DiffCanvas from './DiffCanvas';
 import AgentTerminal from './AgentTerminal';
 import PipelineRail from './PipelineRail';
+import RegionPicker from './RegionPicker';
 
 export default function SimulatorView({ activeRegionId, setActiveRegionId, onLogsChange }) {
   const selectedRegion = MOCK_REGIONS.find(r => r.id === activeRegionId) || MOCK_REGIONS[0];
@@ -65,6 +66,16 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
   }, [activeRegionId]);
 
   const activePreset = selectedRegion.presets.find(p => p.id === selectedPresetId) || selectedRegion.presets[0];
+
+  const handleSelectRegion = (id) => {
+    setFreeTarget(null);
+    setActiveRegionId(id);
+    const next = MOCK_REGIONS.find((r) => r.id === id);
+    if (next && next.presets.length > 0) {
+      setSelectedPresetId(next.presets[0].id);
+      setInputText(next.presets[0].text);
+    }
+  };
 
   const handleSelectPreset = (preset) => {
     setSelectedPresetId(preset.id);
@@ -166,15 +177,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
             selectedRegionId={activeRegionId}
             freeTarget={freeTarget}
             onPickTarget={(t) => setFreeTarget(t)}
-            onSelectRegion={(id) => {
-              setFreeTarget(null);
-              setActiveRegionId(id);
-              const newReg = MOCK_REGIONS.find(r => r.id === id);
-              if (newReg && newReg.presets.length > 0) {
-                setSelectedPresetId(newReg.presets[0].id);
-                setInputText(newReg.presets[0].text);
-              }
-            }}
+            onSelectRegion={handleSelectRegion}
           />
 
           {/* Target status: free navigation is always allowed, simulation is
@@ -214,6 +217,13 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
               </>
             )}
           </div>
+
+          <RegionPicker
+            regions={MOCK_REGIONS}
+            selectedId={activeRegionId}
+            onSelect={handleSelectRegion}
+            disabled={isSimulating}
+          />
 
           {/* Intervention Input Box & Preset Buttons */}
           <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-4">

@@ -169,6 +169,18 @@ def dynamics_node(state: GeoCounterfactualState) -> dict:
     rate_factor = GROWTH_RATE_BY_TYPE.get(structure_type, 1.0)
 
     growth, recharge = growth_potential(change_mask, structure_type, cell_size)
+
+    # Nothing grows on water that is already there. Several catalogued
+    # watersheds contain a tank or reservoir inside the recharge buffer, and
+    # without this the generator painted canopy over open water: NDVI rose
+    # only from -0.26 to 0.11 while the visible bands turned green, which
+    # rule 3 correctly reported as synthetic paint. Jalna failed this way on
+    # 86 px every iteration, so the loop could never converge -- no amount of
+    # regeneration fixes an instruction that was wrong to begin with.
+    existing_water = np.asarray(state.get("baseline_ndwi"), dtype=np.float32) > 0.0 \
+        if state.get("baseline_ndwi") is not None else np.zeros(growth.shape, bool)
+    growth = np.where(existing_water, 0.0, growth).astype(np.float32)
+
     ceiling = ndvi_growth_ceiling(baseline_ndvi, growth, years, slope,
                                   rate_factor=rate_factor)
 

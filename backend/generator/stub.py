@@ -91,6 +91,24 @@ class StubGenerator(BaseGenerator):
         growth = np.asarray(growth, dtype=np.float32)
 
         greening = np.clip(growth, 0.0, 1.0)
+
+        # Paint only as much green as the NDVI ceiling can justify. Scaling
+        # the visible bands by `growth` while clamping NDVI to the ceiling
+        # separately lets the two disagree: on ground where the ceiling is
+        # tight (steep, or far from recharge) the stub painted a canopy whose
+        # NDVI could not exceed 0.15, and rule 3 correctly called it
+        # synthetic paint. Jalna failed exactly this way on 86 px and burned
+        # its whole retry budget, because no amount of regeneration fixes an
+        # inconsistency baked into the generator.
+        ceiling = guidance.get("ndvi_ceiling")
+        baseline_ndvi = request.baseline_ndvi
+        if ceiling is not None and baseline_ndvi is not None:
+            headroom = (np.asarray(ceiling, dtype=np.float32)
+                        - np.asarray(baseline_ndvi, dtype=np.float32))
+            # A full-strength canopy needs ~0.35 NDVI of headroom.
+            greening = np.minimum(greening,
+                                  np.clip(headroom / 0.35, 0.0, 1.0))
+
         greening[water] = 0.0
         for c, value in enumerate(VEG_RGB):
             rgb[:, :, c] = rgb[:, :, c] * (1 - greening) + value * greening

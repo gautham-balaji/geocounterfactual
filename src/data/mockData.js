@@ -1,120 +1,863 @@
+// AUTO-GENERATED region catalog - keep in sync with backend/config.py.
+// Every entry is a verified semi-arid watershed: built-up cover checked
+// against ESA WorldCover, and terrain checked for BOTH flat valley floor
+// (dam sites) and >5 deg ridges (so the critic's gravity rule applies).
 export const MOCK_REGIONS = [
   {
     id: 'anantapur',
-    name: 'Anantapur Watershed Zone',
-    state: 'Andhra Pradesh, India',
-    lat: 14.6819,
-    lng: 77.6006,
+    name: 'Uravakonda Watershed',
+    state: 'Anantapur District, Andhra Pradesh',
+    lat: 14.92,
+    lng: 77.4,
     climateZone: 'Semi-Arid Rain Shadow',
     baselineMetrics: {
-      ndvi: 0.22,
-      soilMoisture: '18%',
-      waterRetention: '12%',
-      avgSlope: '4.2°',
-      rainfall: '520 mm/yr'
+      ndvi: 0.171,
+      soilMoisture: '14%',
+      waterRetention: '11%',
+      avgSlope: '4.1\u00b0',
+      rainfall: '520 mm/yr',
+      builtUp: '0.00%',
     },
     presets: [
       {
         id: 'checkdams',
-        title: 'Central Stream Check-Dams',
-        text: 'Build 3 series check-dams along the main dry stream bed to trap monsoon runoff and recharge shallow aquifers.',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Anantapur to trap monsoon runoff and recharge shallow aquifers.',
         metricsDelta: {
           ndviDelta: '+0.18',
           soilMoistureDelta: '+14%',
           waterRetentionDelta: '+28%',
           plausibilityScore: 94,
           criticIterations: 2,
-          rejectionReason: 'Iteration 1 rejected: Water body initially placed on 14° upper ridge slope without drainage basin.'
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
         }
       },
       {
         id: 'afforestation',
-        title: 'Upper Ridge Afforestation',
-        text: 'Afforest 150 hectares of degraded upper-catchment slope with native Acacia & Neem broadleaf canopy to prevent topsoil erosion.',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Anantapur with native drought-hardy species.',
         metricsDelta: {
           ndviDelta: '+0.25',
-          soilMoistureDelta: '+19%',
+          soilMoistureDelta: '+9%',
           waterRetentionDelta: '+16%',
           plausibilityScore: 96,
           criticIterations: 1,
-          rejectionReason: 'Approved on 1st pass. Biomass growth rate compliant with 5-year precipitation caps.'
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
         }
       },
       {
         id: 'contourbunding',
-        title: 'Contour Bunding & Percolation Pits',
-        text: 'Construct earthen contour bunds every 50m with recharge pits across agricultural boundary plots.',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Anantapur agricultural boundary plots.',
         metricsDelta: {
           ndviDelta: '+0.12',
           soilMoistureDelta: '+22%',
           waterRetentionDelta: '+31%',
           plausibilityScore: 91,
-          criticIterations: 3,
-          rejectionReason: 'Iteration 1 & 2 rejected: Soil porosity exceeded infiltration capacity for clay-loam substrate.'
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
         }
-      }
+      },
+    ]
+  },
+  {
+    id: 'kadapa',
+    name: 'Kadapa Schist Basin',
+    state: 'Kadapa District, Andhra Pradesh',
+    lat: 14.6822,
+    lng: 79.1098,
+    climateZone: 'Semi-Arid Rain Shadow',
+    baselineMetrics: {
+      ndvi: 0.159,
+      soilMoisture: '14%',
+      waterRetention: '13%',
+      avgSlope: '5.5\u00b0',
+      rainfall: '540 mm/yr',
+      builtUp: '0.04%',
+    },
+    presets: [
+      {
+        id: 'checkdams',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Kadapa to trap monsoon runoff and recharge shallow aquifers.',
+        metricsDelta: {
+          ndviDelta: '+0.18',
+          soilMoistureDelta: '+14%',
+          waterRetentionDelta: '+28%',
+          plausibilityScore: 94,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
+        }
+      },
+      {
+        id: 'afforestation',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Kadapa with native drought-hardy species.',
+        metricsDelta: {
+          ndviDelta: '+0.25',
+          soilMoistureDelta: '+9%',
+          waterRetentionDelta: '+16%',
+          plausibilityScore: 96,
+          criticIterations: 1,
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
+        }
+      },
+      {
+        id: 'contourbunding',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Kadapa agricultural boundary plots.',
+        metricsDelta: {
+          ndviDelta: '+0.12',
+          soilMoistureDelta: '+22%',
+          waterRetentionDelta: '+31%',
+          plausibilityScore: 91,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
+        }
+      },
+    ]
+  },
+  {
+    id: 'kurnool',
+    name: 'Kurnool Erra Basin',
+    state: 'Kurnool District, Andhra Pradesh',
+    lat: 15.4124,
+    lng: 77.9401,
+    climateZone: 'Semi-Arid Rain Shadow',
+    baselineMetrics: {
+      ndvi: 0.179,
+      soilMoisture: '15%',
+      waterRetention: '13%',
+      avgSlope: '5.0\u00b0',
+      rainfall: '540 mm/yr',
+      builtUp: '0.22%',
+    },
+    presets: [
+      {
+        id: 'checkdams',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Kurnool to trap monsoon runoff and recharge shallow aquifers.',
+        metricsDelta: {
+          ndviDelta: '+0.18',
+          soilMoistureDelta: '+14%',
+          waterRetentionDelta: '+28%',
+          plausibilityScore: 94,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
+        }
+      },
+      {
+        id: 'afforestation',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Kurnool with native drought-hardy species.',
+        metricsDelta: {
+          ndviDelta: '+0.25',
+          soilMoistureDelta: '+9%',
+          waterRetentionDelta: '+16%',
+          plausibilityScore: 96,
+          criticIterations: 1,
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
+        }
+      },
+      {
+        id: 'contourbunding',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Kurnool agricultural boundary plots.',
+        metricsDelta: {
+          ndviDelta: '+0.12',
+          soilMoistureDelta: '+22%',
+          waterRetentionDelta: '+31%',
+          plausibilityScore: 91,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
+        }
+      },
+    ]
+  },
+  {
+    id: 'kolar',
+    name: 'Kolar Plateau',
+    state: 'Kolar District, Karnataka',
+    lat: 13.7726,
+    lng: 77.8752,
+    climateZone: 'Semi-Arid Deccan Scrub',
+    baselineMetrics: {
+      ndvi: 0.208,
+      soilMoisture: '16%',
+      waterRetention: '12%',
+      avgSlope: '4.5\u00b0',
+      rainfall: '610 mm/yr',
+      builtUp: '0.61%',
+    },
+    presets: [
+      {
+        id: 'checkdams',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Kolar to trap monsoon runoff and recharge shallow aquifers.',
+        metricsDelta: {
+          ndviDelta: '+0.18',
+          soilMoistureDelta: '+14%',
+          waterRetentionDelta: '+28%',
+          plausibilityScore: 94,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
+        }
+      },
+      {
+        id: 'afforestation',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Kolar with native drought-hardy species.',
+        metricsDelta: {
+          ndviDelta: '+0.25',
+          soilMoistureDelta: '+9%',
+          waterRetentionDelta: '+16%',
+          plausibilityScore: 96,
+          criticIterations: 1,
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
+        }
+      },
+      {
+        id: 'contourbunding',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Kolar agricultural boundary plots.',
+        metricsDelta: {
+          ndviDelta: '+0.12',
+          soilMoistureDelta: '+22%',
+          waterRetentionDelta: '+31%',
+          plausibilityScore: 91,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
+        }
+      },
+    ]
+  },
+  {
+    id: 'chitradurga',
+    name: 'Chitradurga Scrubland',
+    state: 'Chitradurga District, Karnataka',
+    lat: 13.989,
+    lng: 76.4928,
+    climateZone: 'Semi-Arid Deccan Scrub',
+    baselineMetrics: {
+      ndvi: 0.268,
+      soilMoisture: '18%',
+      waterRetention: '12%',
+      avgSlope: '4.6\u00b0',
+      rainfall: '610 mm/yr',
+      builtUp: '0.45%',
+    },
+    presets: [
+      {
+        id: 'checkdams',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Chitradurga to trap monsoon runoff and recharge shallow aquifers.',
+        metricsDelta: {
+          ndviDelta: '+0.18',
+          soilMoistureDelta: '+14%',
+          waterRetentionDelta: '+28%',
+          plausibilityScore: 94,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
+        }
+      },
+      {
+        id: 'afforestation',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Chitradurga with native drought-hardy species.',
+        metricsDelta: {
+          ndviDelta: '+0.25',
+          soilMoistureDelta: '+9%',
+          waterRetentionDelta: '+16%',
+          plausibilityScore: 96,
+          criticIterations: 1,
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
+        }
+      },
+      {
+        id: 'contourbunding',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Chitradurga agricultural boundary plots.',
+        metricsDelta: {
+          ndviDelta: '+0.12',
+          soilMoistureDelta: '+22%',
+          waterRetentionDelta: '+31%',
+          plausibilityScore: 91,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
+        }
+      },
+    ]
+  },
+  {
+    id: 'bellary',
+    name: 'Ballari Granite Scrub',
+    state: 'Ballari District, Karnataka',
+    lat: 15.1763,
+    lng: 76.5846,
+    climateZone: 'Semi-Arid Deccan Scrub',
+    baselineMetrics: {
+      ndvi: 0.168,
+      soilMoisture: '14%',
+      waterRetention: '13%',
+      avgSlope: '4.6\u00b0',
+      rainfall: '610 mm/yr',
+      builtUp: '0.08%',
+    },
+    presets: [
+      {
+        id: 'checkdams',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Ballari to trap monsoon runoff and recharge shallow aquifers.',
+        metricsDelta: {
+          ndviDelta: '+0.18',
+          soilMoistureDelta: '+14%',
+          waterRetentionDelta: '+28%',
+          plausibilityScore: 94,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
+        }
+      },
+      {
+        id: 'afforestation',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Ballari with native drought-hardy species.',
+        metricsDelta: {
+          ndviDelta: '+0.25',
+          soilMoistureDelta: '+9%',
+          waterRetentionDelta: '+16%',
+          plausibilityScore: 96,
+          criticIterations: 1,
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
+        }
+      },
+      {
+        id: 'contourbunding',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Ballari agricultural boundary plots.',
+        metricsDelta: {
+          ndviDelta: '+0.12',
+          soilMoistureDelta: '+22%',
+          waterRetentionDelta: '+31%',
+          plausibilityScore: 91,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
+        }
+      },
     ]
   },
   {
     id: 'marathwada',
-    name: 'Marathwada Drought Basin',
-    state: 'Maharashtra, India',
-    lat: 19.8762,
-    lng: 75.3433,
+    name: 'Beed Basin Watershed',
+    state: 'Beed District, Maharashtra',
+    lat: 18.77,
+    lng: 75.37,
     climateZone: 'Deccan Trap Arid Plateau',
     baselineMetrics: {
       ndvi: 0.18,
-      soilMoisture: '14%',
-      waterRetention: '8%',
-      avgSlope: '3.5°',
-      rainfall: '680 mm/yr'
+      soilMoisture: '15%',
+      waterRetention: '13%',
+      avgSlope: '4.8\u00b0',
+      rainfall: '680 mm/yr',
+      builtUp: '0.78%',
     },
     presets: [
       {
-        id: 'farmponds',
-        title: 'Distributed Farm Ponds Network',
-        text: 'Excavate 12 plastic-lined farm ponds along natural contour dips to harvest surface runoff.',
+        id: 'checkdams',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Beed to trap monsoon runoff and recharge shallow aquifers.',
         metricsDelta: {
-          ndviDelta: '+0.16',
-          soilMoistureDelta: '+18%',
-          waterRetentionDelta: '+34%',
-          plausibilityScore: 93,
+          ndviDelta: '+0.18',
+          soilMoistureDelta: '+14%',
+          waterRetentionDelta: '+28%',
+          plausibilityScore: 94,
           criticIterations: 2,
-          rejectionReason: 'Iteration 1 rejected: Surface evaporation rate uncompensated in peak summer thermal band.'
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
         }
-      }
+      },
+      {
+        id: 'afforestation',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Beed with native drought-hardy species.',
+        metricsDelta: {
+          ndviDelta: '+0.25',
+          soilMoistureDelta: '+9%',
+          waterRetentionDelta: '+16%',
+          plausibilityScore: 96,
+          criticIterations: 1,
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
+        }
+      },
+      {
+        id: 'contourbunding',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Beed agricultural boundary plots.',
+        metricsDelta: {
+          ndviDelta: '+0.12',
+          soilMoistureDelta: '+22%',
+          waterRetentionDelta: '+31%',
+          plausibilityScore: 91,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
+        }
+      },
+    ]
+  },
+  {
+    id: 'jalna',
+    name: 'Jalna Basalt Upland',
+    state: 'Jalna District, Maharashtra',
+    lat: 20.5478,
+    lng: 76.0106,
+    climateZone: 'Deccan Trap Arid Plateau',
+    baselineMetrics: {
+      ndvi: 0.21,
+      soilMoisture: '16%',
+      waterRetention: '11%',
+      avgSlope: '5.5\u00b0',
+      rainfall: '680 mm/yr',
+      builtUp: '0.62%',
+    },
+    presets: [
+      {
+        id: 'checkdams',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Jalna to trap monsoon runoff and recharge shallow aquifers.',
+        metricsDelta: {
+          ndviDelta: '+0.18',
+          soilMoistureDelta: '+14%',
+          waterRetentionDelta: '+28%',
+          plausibilityScore: 94,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
+        }
+      },
+      {
+        id: 'afforestation',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Jalna with native drought-hardy species.',
+        metricsDelta: {
+          ndviDelta: '+0.25',
+          soilMoistureDelta: '+9%',
+          waterRetentionDelta: '+16%',
+          plausibilityScore: 96,
+          criticIterations: 1,
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
+        }
+      },
+      {
+        id: 'contourbunding',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Jalna agricultural boundary plots.',
+        metricsDelta: {
+          ndviDelta: '+0.12',
+          soilMoistureDelta: '+22%',
+          waterRetentionDelta: '+31%',
+          plausibilityScore: 91,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
+        }
+      },
+    ]
+  },
+  {
+    id: 'ahmednagar',
+    name: 'Ahmednagar Rain Shadow',
+    state: 'Ahmednagar District, Maharashtra',
+    lat: 19.3005,
+    lng: 74.2988,
+    climateZone: 'Deccan Trap Arid Plateau',
+    baselineMetrics: {
+      ndvi: 0.173,
+      soilMoisture: '14%',
+      waterRetention: '12%',
+      avgSlope: '5.6\u00b0',
+      rainfall: '680 mm/yr',
+      builtUp: '0.82%',
+    },
+    presets: [
+      {
+        id: 'checkdams',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Ahmednagar to trap monsoon runoff and recharge shallow aquifers.',
+        metricsDelta: {
+          ndviDelta: '+0.18',
+          soilMoistureDelta: '+14%',
+          waterRetentionDelta: '+28%',
+          plausibilityScore: 94,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
+        }
+      },
+      {
+        id: 'afforestation',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Ahmednagar with native drought-hardy species.',
+        metricsDelta: {
+          ndviDelta: '+0.25',
+          soilMoistureDelta: '+9%',
+          waterRetentionDelta: '+16%',
+          plausibilityScore: 96,
+          criticIterations: 1,
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
+        }
+      },
+      {
+        id: 'contourbunding',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Ahmednagar agricultural boundary plots.',
+        metricsDelta: {
+          ndviDelta: '+0.12',
+          soilMoistureDelta: '+22%',
+          waterRetentionDelta: '+31%',
+          plausibilityScore: 91,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
+        }
+      },
+    ]
+  },
+  {
+    id: 'jodhpur',
+    name: 'Jodhpur Arid Fringe',
+    state: 'Jodhpur District, Rajasthan',
+    lat: 26.7718,
+    lng: 73.2594,
+    climateZone: 'Arid Aravalli Fringe',
+    baselineMetrics: {
+      ndvi: 0.13,
+      soilMoisture: '13%',
+      waterRetention: '12%',
+      avgSlope: '4.5\u00b0',
+      rainfall: '380 mm/yr',
+      builtUp: '0.13%',
+    },
+    presets: [
+      {
+        id: 'checkdams',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Jodhpur to trap monsoon runoff and recharge shallow aquifers.',
+        metricsDelta: {
+          ndviDelta: '+0.18',
+          soilMoistureDelta: '+14%',
+          waterRetentionDelta: '+28%',
+          plausibilityScore: 94,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
+        }
+      },
+      {
+        id: 'afforestation',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Jodhpur with native drought-hardy species.',
+        metricsDelta: {
+          ndviDelta: '+0.25',
+          soilMoistureDelta: '+9%',
+          waterRetentionDelta: '+16%',
+          plausibilityScore: 96,
+          criticIterations: 1,
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
+        }
+      },
+      {
+        id: 'contourbunding',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Jodhpur agricultural boundary plots.',
+        metricsDelta: {
+          ndviDelta: '+0.12',
+          soilMoistureDelta: '+22%',
+          waterRetentionDelta: '+31%',
+          plausibilityScore: 91,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
+        }
+      },
+    ]
+  },
+  {
+    id: 'pali',
+    name: 'Pali Aravalli Foothills',
+    state: 'Pali District, Rajasthan',
+    lat: 24.9773,
+    lng: 73.1995,
+    climateZone: 'Arid Aravalli Fringe',
+    baselineMetrics: {
+      ndvi: 0.217,
+      soilMoisture: '16%',
+      waterRetention: '13%',
+      avgSlope: '4.7\u00b0',
+      rainfall: '380 mm/yr',
+      builtUp: '0.24%',
+    },
+    presets: [
+      {
+        id: 'checkdams',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Pali to trap monsoon runoff and recharge shallow aquifers.',
+        metricsDelta: {
+          ndviDelta: '+0.18',
+          soilMoistureDelta: '+14%',
+          waterRetentionDelta: '+28%',
+          plausibilityScore: 94,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
+        }
+      },
+      {
+        id: 'afforestation',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Pali with native drought-hardy species.',
+        metricsDelta: {
+          ndviDelta: '+0.25',
+          soilMoistureDelta: '+9%',
+          waterRetentionDelta: '+16%',
+          plausibilityScore: 96,
+          criticIterations: 1,
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
+        }
+      },
+      {
+        id: 'contourbunding',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Pali agricultural boundary plots.',
+        metricsDelta: {
+          ndviDelta: '+0.12',
+          soilMoistureDelta: '+22%',
+          waterRetentionDelta: '+31%',
+          plausibilityScore: 91,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
+        }
+      },
+    ]
+  },
+  {
+    id: 'jhansi',
+    name: 'Jhansi Bundelkhand Plateau',
+    state: 'Jhansi District, Uttar Pradesh',
+    lat: 25.6308,
+    lng: 79.3642,
+    climateZone: 'Bundelkhand Dry Plateau',
+    baselineMetrics: {
+      ndvi: 0.255,
+      soilMoisture: '18%',
+      waterRetention: '11%',
+      avgSlope: '4.5\u00b0',
+      rainfall: '820 mm/yr',
+      builtUp: '0.08%',
+    },
+    presets: [
+      {
+        id: 'checkdams',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Jhansi to trap monsoon runoff and recharge shallow aquifers.',
+        metricsDelta: {
+          ndviDelta: '+0.18',
+          soilMoistureDelta: '+14%',
+          waterRetentionDelta: '+28%',
+          plausibilityScore: 94,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
+        }
+      },
+      {
+        id: 'afforestation',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Jhansi with native drought-hardy species.',
+        metricsDelta: {
+          ndviDelta: '+0.25',
+          soilMoistureDelta: '+9%',
+          waterRetentionDelta: '+16%',
+          plausibilityScore: 96,
+          criticIterations: 1,
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
+        }
+      },
+      {
+        id: 'contourbunding',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Jhansi agricultural boundary plots.',
+        metricsDelta: {
+          ndviDelta: '+0.12',
+          soilMoistureDelta: '+22%',
+          waterRetentionDelta: '+31%',
+          plausibilityScore: 91,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
+        }
+      },
     ]
   },
   {
     id: 'bundelkhand',
-    name: 'Bundelkhand Semi-Arid Basin',
-    state: 'Madhya Pradesh, India',
-    lat: 24.8986,
-    lng: 79.5937,
+    name: 'Panna Plateau Watershed',
+    state: 'Panna District, Madhya Pradesh',
+    lat: 24.47,
+    lng: 79.82,
     climateZone: 'Hard-Rock Granitic Terrain',
     baselineMetrics: {
       ndvi: 0.28,
-      soilMoisture: '21%',
-      waterRetention: '15%',
-      avgSlope: '6.1°',
-      rainfall: '850 mm/yr'
+      soilMoisture: '19%',
+      waterRetention: '13%',
+      avgSlope: '4.5\u00b0',
+      rainfall: '850 mm/yr',
+      builtUp: '0.00%',
     },
     presets: [
       {
-        id: 'stopdams',
-        title: 'Granitic Stream Stop-Dams',
-        text: 'Construct 2 masonry stop-dams with boulder rip-rap across rocky stream channels.',
+        id: 'checkdams',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Panna to trap monsoon runoff and recharge shallow aquifers.',
         metricsDelta: {
-          ndviDelta: '+0.21',
-          soilMoistureDelta: '+16%',
-          waterRetentionDelta: '+25%',
-          plausibilityScore: 95,
-          criticIterations: 1,
-          rejectionReason: 'Approved on 1st pass. Bedrock impermeability verified against DEM.'
+          ndviDelta: '+0.18',
+          soilMoistureDelta: '+14%',
+          waterRetentionDelta: '+28%',
+          plausibilityScore: 94,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
         }
-      }
+      },
+      {
+        id: 'afforestation',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Panna with native drought-hardy species.',
+        metricsDelta: {
+          ndviDelta: '+0.25',
+          soilMoistureDelta: '+9%',
+          waterRetentionDelta: '+16%',
+          plausibilityScore: 96,
+          criticIterations: 1,
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
+        }
+      },
+      {
+        id: 'contourbunding',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Panna agricultural boundary plots.',
+        metricsDelta: {
+          ndviDelta: '+0.12',
+          soilMoistureDelta: '+22%',
+          waterRetentionDelta: '+31%',
+          plausibilityScore: 91,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
+        }
+      },
     ]
-  }
+  },
+  {
+    id: 'tikamgarh',
+    name: 'Tikamgarh Granite Belt',
+    state: 'Tikamgarh District, Madhya Pradesh',
+    lat: 25.1131,
+    lng: 78.9474,
+    climateZone: 'Hard-Rock Granitic Terrain',
+    baselineMetrics: {
+      ndvi: 0.216,
+      soilMoisture: '16%',
+      waterRetention: '12%',
+      avgSlope: '4.0\u00b0',
+      rainfall: '850 mm/yr',
+      builtUp: '0.53%',
+    },
+    presets: [
+      {
+        id: 'checkdams',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Tikamgarh to trap monsoon runoff and recharge shallow aquifers.',
+        metricsDelta: {
+          ndviDelta: '+0.18',
+          soilMoistureDelta: '+14%',
+          waterRetentionDelta: '+28%',
+          plausibilityScore: 94,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
+        }
+      },
+      {
+        id: 'afforestation',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Tikamgarh with native drought-hardy species.',
+        metricsDelta: {
+          ndviDelta: '+0.25',
+          soilMoistureDelta: '+9%',
+          waterRetentionDelta: '+16%',
+          plausibilityScore: 96,
+          criticIterations: 1,
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
+        }
+      },
+      {
+        id: 'contourbunding',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Tikamgarh agricultural boundary plots.',
+        metricsDelta: {
+          ndviDelta: '+0.12',
+          soilMoistureDelta: '+22%',
+          waterRetentionDelta: '+31%',
+          plausibilityScore: 91,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
+        }
+      },
+    ]
+  },
+  {
+    id: 'sagar',
+    name: 'Sagar Vindhyan Upland',
+    state: 'Sagar District, Madhya Pradesh',
+    lat: 23.8925,
+    lng: 78.6733,
+    climateZone: 'Hard-Rock Granitic Terrain',
+    baselineMetrics: {
+      ndvi: 0.27,
+      soilMoisture: '18%',
+      waterRetention: '13%',
+      avgSlope: '5.2\u00b0',
+      rainfall: '850 mm/yr',
+      builtUp: '0.05%',
+    },
+    presets: [
+      {
+        id: 'checkdams',
+        title: 'Series Check-Dams',
+        text: 'Build 3 series check-dams along the main dry stream bed in Sagar to trap monsoon runoff and recharge shallow aquifers.',
+        metricsDelta: {
+          ndviDelta: '+0.18',
+          soilMoistureDelta: '+14%',
+          waterRetentionDelta: '+28%',
+          plausibilityScore: 94,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: water body placed on an upper ridge slope.'
+        }
+      },
+      {
+        id: 'afforestation',
+        title: 'Upper Catchment Afforestation',
+        text: 'Afforest 120 hectares of degraded upper-catchment slope in Sagar with native drought-hardy species.',
+        metricsDelta: {
+          ndviDelta: '+0.25',
+          soilMoistureDelta: '+9%',
+          waterRetentionDelta: '+16%',
+          plausibilityScore: 96,
+          criticIterations: 1,
+          rejectionReason: 'Approved on 1st pass. Growth within the rainfed envelope.'
+        }
+      },
+      {
+        id: 'contourbunding',
+        title: 'Contour Bunding & Recharge Pits',
+        text: 'Construct earthen contour bunds every 50m with percolation pits across the Sagar agricultural boundary plots.',
+        metricsDelta: {
+          ndviDelta: '+0.12',
+          soilMoistureDelta: '+22%',
+          waterRetentionDelta: '+31%',
+          plausibilityScore: 91,
+          criticIterations: 2,
+          rejectionReason: 'Iteration 1 rejected: infiltration exceeded substrate capacity.'
+        }
+      },
+    ]
+  },
 ];
 
 export const MOCK_AGENT_NODES = [

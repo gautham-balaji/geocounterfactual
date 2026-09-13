@@ -58,34 +58,155 @@ class Region(BaseModel):
 REGIONS: Dict[str, Region] = {
     "anantapur": Region(
         id="anantapur",
-        name="Uravakonda Watershed, Anantapur",
-        state="Andhra Pradesh, India",
-        # Braided dry stream bed (nala) with riparian fringe and red-soil
-        # farmland. 0.0% built-up, 31.8% slope<2.5deg, 32.7% slope>5deg.
-        bbox=[77.38, 14.90, 77.42, 14.94],
+        name="Uravakonda Watershed",
+        state="Anantapur District, Andhra Pradesh",
+        # Verified 0.00% built-up, 31.8% slope<2.5deg,
+        # 32.7% slope>5deg, baseline NDVI 0.171.
+        bbox=[77.38, 14.9, 77.42, 14.94],
         baseline_ndvi=0.171,
         climate_zone="Semi-Arid Rain Shadow",
     ),
+    "kadapa": Region(
+        id="kadapa",
+        name="Kadapa Schist Basin",
+        state="Kadapa District, Andhra Pradesh",
+        # Verified 0.04% built-up, 46.8% slope<2.5deg,
+        # 44.4% slope>5deg, baseline NDVI 0.159.
+        bbox=[79.0898, 14.6622, 79.1298, 14.7022],
+        baseline_ndvi=0.159,
+        climate_zone="Semi-Arid Rain Shadow",
+    ),
+    "kurnool": Region(
+        id="kurnool",
+        name="Kurnool Erra Basin",
+        state="Kurnool District, Andhra Pradesh",
+        # Verified 0.22% built-up, 44.9% slope<2.5deg,
+        # 40.4% slope>5deg, baseline NDVI 0.179.
+        bbox=[77.9201, 15.3924, 77.9601, 15.4324],
+        baseline_ndvi=0.179,
+        climate_zone="Semi-Arid Rain Shadow",
+    ),
+    "kolar": Region(
+        id="kolar",
+        name="Kolar Plateau",
+        state="Kolar District, Karnataka",
+        # Verified 0.61% built-up, 37.6% slope<2.5deg,
+        # 35.6% slope>5deg, baseline NDVI 0.208.
+        bbox=[77.8552, 13.7526, 77.8952, 13.7926],
+        baseline_ndvi=0.208,
+        climate_zone="Semi-Arid Deccan Scrub",
+    ),
+    "chitradurga": Region(
+        id="chitradurga",
+        name="Chitradurga Scrubland",
+        state="Chitradurga District, Karnataka",
+        # Verified 0.45% built-up, 38.4% slope<2.5deg,
+        # 36.8% slope>5deg, baseline NDVI 0.268.
+        bbox=[76.4728, 13.969, 76.5128, 14.009],
+        baseline_ndvi=0.268,
+        climate_zone="Semi-Arid Deccan Scrub",
+    ),
+    "bellary": Region(
+        id="bellary",
+        name="Ballari Granite Scrub",
+        state="Ballari District, Karnataka",
+        # Verified 0.08% built-up, 46.4% slope<2.5deg,
+        # 36.7% slope>5deg, baseline NDVI 0.168.
+        bbox=[76.5646, 15.1563, 76.6046, 15.1963],
+        baseline_ndvi=0.168,
+        climate_zone="Semi-Arid Deccan Scrub",
+    ),
     "marathwada": Region(
         id="marathwada",
-        name="Beed Basin Watershed, Marathwada",
-        state="Maharashtra, India",
-        # 0.78% built-up, 44.4% flat, 38.4% steep.
+        name="Beed Basin Watershed",
+        state="Beed District, Maharashtra",
+        # Verified 0.78% built-up, 44.4% slope<2.5deg,
+        # 38.4% slope>5deg, baseline NDVI 0.180.
         bbox=[75.35, 18.75, 75.39, 18.79],
         baseline_ndvi=0.18,
         climate_zone="Deccan Trap Arid Plateau",
     ),
+    "jalna": Region(
+        id="jalna",
+        name="Jalna Basalt Upland",
+        state="Jalna District, Maharashtra",
+        # Verified 0.62% built-up, 34.6% slope<2.5deg,
+        # 43.8% slope>5deg, baseline NDVI 0.210.
+        bbox=[75.9906, 20.5278, 76.0306, 20.5678],
+        baseline_ndvi=0.21,
+        climate_zone="Deccan Trap Arid Plateau",
+    ),
+    "ahmednagar": Region(
+        id="ahmednagar",
+        name="Ahmednagar Rain Shadow",
+        state="Ahmednagar District, Maharashtra",
+        # Verified 0.82% built-up, 40.0% slope<2.5deg,
+        # 44.9% slope>5deg, baseline NDVI 0.173.
+        bbox=[74.2788, 19.2805, 74.3188, 19.3205],
+        baseline_ndvi=0.173,
+        climate_zone="Deccan Trap Arid Plateau",
+    ),
+    "jodhpur": Region(
+        id="jodhpur",
+        name="Jodhpur Arid Fringe",
+        state="Jodhpur District, Rajasthan",
+        # Verified 0.13% built-up, 38.0% slope<2.5deg,
+        # 36.1% slope>5deg, baseline NDVI 0.130.
+        bbox=[73.2394, 26.7518, 73.2794, 26.7918],
+        baseline_ndvi=0.13,
+        climate_zone="Arid Aravalli Fringe",
+    ),
+    "pali": Region(
+        id="pali",
+        name="Pali Aravalli Foothills",
+        state="Pali District, Rajasthan",
+        # Verified 0.24% built-up, 45.3% slope<2.5deg,
+        # 37.9% slope>5deg, baseline NDVI 0.217.
+        bbox=[73.1795, 24.9573, 73.2195, 24.9973],
+        baseline_ndvi=0.217,
+        climate_zone="Arid Aravalli Fringe",
+    ),
+    "jhansi": Region(
+        id="jhansi",
+        name="Jhansi Bundelkhand Plateau",
+        state="Jhansi District, Uttar Pradesh",
+        # Verified 0.08% built-up, 30.5% slope<2.5deg,
+        # 36.4% slope>5deg, baseline NDVI 0.255.
+        bbox=[79.3442, 25.6108, 79.3842, 25.6508],
+        baseline_ndvi=0.255,
+        climate_zone="Bundelkhand Dry Plateau",
+    ),
     "bundelkhand": Region(
         id="bundelkhand",
-        name="Panna Plateau Watershed, Bundelkhand",
-        state="Madhya Pradesh, India",
-        # 0.00% built-up, 44.9% flat, 35.9% steep.
-        bbox=[79.80, 24.45, 79.84, 24.49],
+        name="Panna Plateau Watershed",
+        state="Panna District, Madhya Pradesh",
+        # Verified 0.00% built-up, 44.9% slope<2.5deg,
+        # 35.9% slope>5deg, baseline NDVI 0.280.
+        bbox=[79.8, 24.45, 79.84, 24.49],
         baseline_ndvi=0.28,
         climate_zone="Hard-Rock Granitic Terrain",
     ),
+    "tikamgarh": Region(
+        id="tikamgarh",
+        name="Tikamgarh Granite Belt",
+        state="Tikamgarh District, Madhya Pradesh",
+        # Verified 0.53% built-up, 37.8% slope<2.5deg,
+        # 32.3% slope>5deg, baseline NDVI 0.216.
+        bbox=[78.9274, 25.0931, 78.9674, 25.1331],
+        baseline_ndvi=0.216,
+        climate_zone="Hard-Rock Granitic Terrain",
+    ),
+    "sagar": Region(
+        id="sagar",
+        name="Sagar Vindhyan Upland",
+        state="Sagar District, Madhya Pradesh",
+        # Verified 0.05% built-up, 42.5% slope<2.5deg,
+        # 42.0% slope>5deg, baseline NDVI 0.270.
+        bbox=[78.6533, 23.8725, 78.6933, 23.9125],
+        baseline_ndvi=0.27,
+        climate_zone="Hard-Rock Granitic Terrain",
+    ),
 }
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
