@@ -164,6 +164,31 @@ def cmd_status(args):
 # collect
 # --------------------------------------------------------------------------
 
+def _read_all_features(asset_id: str, page_size: int = 3000) -> List[dict]:
+    """Read every feature from an exported table, paginated.
+
+    FeatureCollection.getInfo() aborts past 5000 elements, which silently
+    dropped five districts on the first collect -- including Anantapur, the
+    primary demo region, and Kadapa, the highest-yield tile in the
+    feasibility probe. The assets were complete; only the read was capped.
+
+    ee.data.listFeatures pages server-side with no such ceiling, and it is a
+    table read rather than a computation, so it still works while the
+    project is in restricted mode.
+    """
+    features: List[dict] = []
+    token = None
+    while True:
+        params = {"assetId": asset_id, "pageSize": page_size}
+        if token:
+            params["pageToken"] = token
+        response = ee.data.listFeatures(params)
+        features.extend(response.get("features", []))
+        token = response.get("nextPageToken")
+        if not token:
+            return features
+
+
 def _classify(props: dict) -> dict:
     """Stage 2 rainfall control, applied client-side."""
     early = props.get("rain_early_mm") or 0.0
@@ -188,8 +213,7 @@ def cmd_collect(args):
     rows: List[dict] = []
     for region_id in state["tasks"]:
         try:
-            fc = ee.FeatureCollection(_asset_id(region_id))
-            feats = fc.getInfo()["features"]
+            feats = _read_all_features(_asset_id(region_id))
         except Exception as exc:  # noqa: BLE001
             print(f"  {region_id:13s} SKIP ({str(exc)[:60]})")
             continue
