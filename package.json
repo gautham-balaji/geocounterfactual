@@ -12,7 +12,6 @@
     "dev:all": "concurrently -n backend,frontend -c cyan,green \"npm:backend\" \"npm:dev\""
   },
   "dependencies": {
-    "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "framer-motion": "^11.18.2",
     "lucide-react": "^0.474.0",

@@ -1,19 +1,21 @@
-import React from 'react';
-import { ShieldCheck, TrendingUp, Droplets, Sun, CheckCircle2, AlertTriangle, Activity, BarChart2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
+import { TrendingUp, Droplets, Activity, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { cn, Label, Panel, Badge, ModelledBadge, Divider } from './ui/primitives';
 
-// Rule ids -> audit-matrix rows, so the checklist reflects what the Critic
-// actually evaluated instead of four hardcoded PASS badges.
 const RULE_ROWS = [
-  { id: 'R1', label: 'Copernicus DEM Slope Constraint', detail: 'Water bodies restricted to slope < 2.5°' },
-  { id: 'R2', label: 'NDVI Biological Ceiling Check', detail: 'Growth capped by rate, moisture and terrain' },
-  { id: 'R3', label: 'Spectral Signature Continuity', detail: 'Visible greening must show an NIR response' },
-  { id: 'R4', label: 'Unchanged Terrain Conservation', detail: 'SSIM outside the footprint >= 0.90' },
+  { id: 'R1', label: 'Gravity / slope invariance', detail: 'Water bodies restricted to slope < 2.5°' },
+  { id: 'R2', label: 'NDVI growth ceiling', detail: 'Capped by rate, moisture and terrain' },
+  { id: 'R3', label: 'Spectral consistency', detail: 'Visible greening must show an NIR response' },
+  { id: 'R4', label: 'Unchanged-area conservation', detail: 'SSIM outside the footprint ≥ 0.90' },
 ];
 
-export default function MetricsPanel({ selectedRegion, activePreset, simulationResult, liveResult = null }) {
-  // Live backend payload wins; mock deltas are the offline fallback. Before
-  // this the panel ALWAYS rendered mockData, so a real 100% run still showed
-  // a hardcoded 94% next to a terminal saying otherwise.
+const RING_R = 30;
+const RING_C = 2 * Math.PI * RING_R;
+
+export default function MetricsPanel({ selectedRegion, activePreset,
+                                       simulationResult, liveResult = null }) {
+  const reduce = useReducedMotion();
   const isLive = Boolean(liveResult && liveResult.source === 'backend');
   const md = liveResult?.metrics_delta;
 
@@ -27,23 +29,16 @@ export default function MetricsPanel({ selectedRegion, activePreset, simulationR
         rejectionReason:
           liveResult.rejection_history?.[0]?.violations?.[0] ??
           (liveResult.is_approved
-            ? 'Approved on the first pass - no physics violations detected.'
+            ? 'Approved on the first pass — no physics violations detected.'
             : 'Retry budget exhausted with violations outstanding.'),
       }
     : activePreset?.metricsDelta || {
-        ndviDelta: '+0.18',
-        soilMoistureDelta: '+14%',
-        waterRetentionDelta: '+28%',
-        plausibilityScore: 94,
-        criticIterations: 2,
-        rejectionReason: 'Iteration 1 rejected: Water body detected on steep 14° slope.'
+        ndviDelta: '+0.18', soilMoistureDelta: '+14%', waterRetentionDelta: '+28%',
+        plausibilityScore: 94, criticIterations: 2,
+        rejectionReason: 'Iteration 1 rejected: water body detected on a steep slope.',
       };
 
   const score = metrics.plausibilityScore;
-  const ringColour = score >= 90 ? '#10b981' : score >= 70 ? '#f59e0b' : '#f43f5e';
-  const scoreText = score >= 90 ? 'text-emerald-400' : score >= 70 ? 'text-amber-400' : 'text-rose-400';
-
-  // Which rules failed on the FINAL pass, read from the live payload.
   const failedIds = new Set();
   (liveResult?.violations ?? []).forEach((v) => {
     if (/Gravity/i.test(v)) failedIds.add('R1');
@@ -53,160 +48,163 @@ export default function MetricsPanel({ selectedRegion, activePreset, simulationR
   });
   const passCount = RULE_ROWS.length - (isLive ? failedIds.size : 0);
 
-  return (
-    <div className="flex flex-col gap-4">
-      {/* 1. Primary Header & Plausibility Score HUD */}
-      <div className="glass-panel p-5 rounded-2xl border border-slate-800 relative overflow-hidden">
-        {/* Glow backdrop */}
-        <div className="absolute -top-10 -right-10 w-40 h-40 bg-emerald-500/10 rounded-full blur-3xl" />
+  const tone = score >= 90 ? 'positive' : score >= 70 ? 'caution' : 'critical';
+  const ringStroke = { positive: '#4ADE80', caution: '#FBBF24', critical: '#F87171' }[tone];
+  const textTone = { positive: 'text-positive', caution: 'text-caution', critical: 'text-critical' }[tone];
 
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-mono font-bold text-emerald-400 uppercase tracking-wider">
-              <ShieldCheck className="w-4 h-4" /> PHYSICAL PLAUSIBILITY AUDIT
-            </div>
-            <h3 className="text-lg font-bold text-white mt-1">Critic Validation Index</h3>
-            <div className="flex items-center gap-2 mt-1">
-              <span className={isLive
-                ? 'px-2 py-0.5 rounded text-[10px] font-mono font-bold border bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
-                : 'px-2 py-0.5 rounded text-[10px] font-mono font-bold border bg-slate-700/40 text-slate-300 border-slate-600'}>
-                {isLive ? 'LIVE PIPELINE' : 'MOCK DATA'}
-              </span>
+  /**
+   * Replaces the confetti burst. A full-marks run gets one quiet pulse of
+   * the ring — the celebration belonged to a consumer app, and a physics
+   * validation result reporting 100% should look like an instrument
+   * settling, not a party.
+   */
+  const perfect = isLive && score >= 100 && liveResult?.is_approved;
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    if (!perfect) return;
+    setFlash(true);
+    const id = setTimeout(() => setFlash(false), 1100);
+    return () => clearTimeout(id);
+  }, [perfect, liveResult?.run_id]);
+
+  return (
+    <div className="space-y-8">
+      {/* ---- Plausibility ---- */}
+      <Panel className="space-y-6">
+        <div className="flex items-start justify-between gap-6">
+          <div className="min-w-0 space-y-2">
+            <Label>Physical plausibility audit</Label>
+            <h3 className="text-h2 font-medium text-ink-primary">
+              Critic validation
+            </h3>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Badge tone={isLive ? 'positive' : 'neutral'}>
+                {isLive ? 'Live pipeline' : 'Mock data'}
+              </Badge>
               {isLive && liveResult?.scene_source && (
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono border bg-sky-500/15 text-sky-300 border-sky-500/40">
-                  {liveResult.scene_source === 'gee' ? 'SENTINEL-2' : String(liveResult.scene_source).toUpperCase()}
-                </span>
+                <Badge tone="info">
+                  {liveResult.scene_source === 'gee'
+                    ? 'Sentinel-2'
+                    : String(liveResult.scene_source)}
+                </Badge>
+              )}
+              {isLive && liveResult?.generator_backend && (
+                <Badge tone="neutral">{liveResult.generator_backend}</Badge>
               )}
             </div>
           </div>
 
-          {/* Radial Circular Badge / Score Display */}
-          <div className="relative w-20 h-20 flex items-center justify-center">
-            <svg className="w-full h-full transform -rotate-90">
-              <circle
-                cx="40"
-                cy="40"
-                r="34"
-                stroke="#1e293b"
-                strokeWidth="6"
-                fill="transparent"
-              />
-              <circle
-                cx="40"
-                cy="40"
-                r="34"
-                stroke={ringColour}
-                strokeWidth="6"
-                strokeDasharray={213}
-                strokeDashoffset={213 - (213 * score) / 100}
-                strokeLinecap="round"
-                fill="transparent"
-                className="transition-all duration-1000 ease-out"
+          {/* Score ring */}
+          <div className="relative w-[76px] h-[76px] shrink-0">
+            <motion.div
+              className="absolute inset-0 rounded-full"
+              animate={flash && !reduce
+                ? { boxShadow: ['0 0 0 0 rgba(74,222,128,0)',
+                                '0 0 0 7px rgba(74,222,128,0.10)',
+                                '0 0 0 0 rgba(74,222,128,0)'] }
+                : {}}
+              transition={{ duration: 1.1, ease: 'easeOut' }}
+            />
+            <svg className="w-full h-full -rotate-90" viewBox="0 0 76 76">
+              <circle cx="38" cy="38" r={RING_R} fill="none"
+                      stroke="#26262B" strokeWidth="2" />
+              <motion.circle
+                cx="38" cy="38" r={RING_R} fill="none"
+                stroke={ringStroke} strokeWidth="2" strokeLinecap="round"
+                strokeDasharray={RING_C}
+                initial={false}
+                animate={{ strokeDashoffset: RING_C - (RING_C * score) / 100 }}
+                transition={{ duration: reduce ? 0 : 0.9, ease: [0.16, 1, 0.3, 1] }}
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className={"text-xl font-extrabold font-mono " + scoreText}>{score}%</span>
-              <span className="text-[9px] font-mono text-slate-400 uppercase">SCORE</span>
+              <span className={cn('font-mono text-h2 font-medium leading-none',
+                textTone)}>
+                {score}
+              </span>
+              <span className="text-micro text-ink-tertiary mt-1">score</span>
             </div>
           </div>
         </div>
 
-        {/* Critic Feedback Iteration Banner */}
-        <div className="mt-4 p-3 rounded-xl bg-darkbg-800/80 border border-slate-700/60 flex items-start gap-2.5">
-          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-          <div className="text-xs">
-            <div className="font-mono text-amber-300 font-semibold">
-              Critic Iterations Required: <span className="text-white">{metrics.criticIterations} Pass(es)</span>
+        <Divider />
+
+        <div className="flex items-start gap-3">
+          {liveResult?.is_approved !== false
+            ? <CheckCircle2 className="w-4 h-4 text-positive shrink-0 mt-0.5" strokeWidth={1.75} />
+            : <AlertTriangle className="w-4 h-4 text-caution shrink-0 mt-0.5" strokeWidth={1.75} />}
+          <div className="min-w-0 space-y-1">
+            <div className="text-label text-ink-primary">
+              {metrics.criticIterations} critic{' '}
+              {metrics.criticIterations === 1 ? 'iteration' : 'iterations'}
             </div>
-            <div className="text-slate-400 mt-0.5 leading-relaxed">
+            <p className="text-micro text-ink-tertiary leading-relaxed">
               {metrics.rejectionReason}
+            </p>
+          </div>
+        </div>
+      </Panel>
+
+      {/* ---- Deltas ---- */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-line rounded-xl overflow-hidden border border-line">
+        {[
+          { icon: TrendingUp, label: 'NDVI delta', value: metrics.ndviDelta,
+            caption: 'Biomass index, 5-year', modelled: false },
+          { icon: Droplets, label: 'Soil moisture', value: metrics.soilMoistureDelta,
+            caption: 'Groundwater recharge plume', modelled: true },
+          { icon: Activity, label: 'Runoff retention', value: metrics.waterRetentionDelta,
+            caption: 'Monsoon capture volume', modelled: true },
+        ].map(({ icon: Icon, label, value, caption, modelled }) => (
+          <div key={label} className="bg-surface-1 px-5 py-5 space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>{label}</Label>
+              <Icon className="w-3.5 h-3.5 text-ink-tertiary" strokeWidth={1.75} />
             </div>
+            <div className="font-mono text-h1 font-medium text-ink-primary">
+              {value}
+            </div>
+            <div className="text-micro text-ink-tertiary">{caption}</div>
+            {modelled && <ModelledBadge className="mt-1" />}
           </div>
-        </div>
+        ))}
       </div>
 
-      {/* 2. Projected Change Deltas Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {/* Metric 1: NDVI Delta */}
-        <div className="glass-panel p-4 rounded-xl border border-slate-800 hover:border-emerald-500/40 transition">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-mono">
-            <span>NDVI DELTA</span>
-            <TrendingUp className="w-4 h-4 text-emerald-400" />
-          </div>
-          <div className="text-2xl font-extrabold font-mono text-emerald-400 mt-2">
-            {metrics.ndviDelta}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1">
-            Biomass growth index (5-yr)
-          </div>
-        </div>
-
-        {/* Metric 2: Soil Moisture */}
-        <div className="glass-panel p-4 rounded-xl border border-slate-800 hover:border-cyan-500/40 transition">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-mono">
-            <span>SOIL MOISTURE</span>
-            <Droplets className="w-4 h-4 text-cyan-400" />
-          </div>
-          <div className="text-2xl font-extrabold font-mono text-cyan-400 mt-2">
-            {metrics.soilMoistureDelta}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1">
-            Groundwater recharge plume
-          </div>
-          <span className="mt-2 inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/40">
-            MODELLED
+      {/* ---- Rule matrix ---- */}
+      <Panel className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Label>Compliance matrix</Label>
+          <span className={cn('font-mono text-micro',
+            passCount === 4 ? 'text-positive' : 'text-critical')}>
+            {passCount}/4 passed
           </span>
         </div>
 
-        {/* Metric 3: Water Retention */}
-        <div className="glass-panel p-4 rounded-xl border border-slate-800 hover:border-indigo-500/40 transition">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-mono">
-            <span>RUNOFF RETENTION</span>
-            <Activity className="w-4 h-4 text-indigo-400" />
-          </div>
-          <div className="text-2xl font-extrabold font-mono text-indigo-400 mt-2">
-            {metrics.waterRetentionDelta}
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1">
-            Monsoon capture volume
-          </div>
-          <span className="mt-2 inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/40">
-            MODELLED
-          </span>
-        </div>
-      </div>
-
-      {/* 3. Detailed Physical Constraint Matrix */}
-      <div className="glass-panel p-4 rounded-xl border border-slate-800 flex flex-col gap-2.5">
-        <div className="text-xs font-mono font-semibold text-slate-300 flex items-center justify-between border-b border-slate-800 pb-2">
-          <span className="flex items-center gap-1.5">
-            <BarChart2 className="w-3.5 h-3.5 text-cyan-400" /> PHYSICAL AUDIT COMPLIANCE MATRIX
-          </span>
-          <span className={passCount === 4 ? "text-emerald-400 text-[11px]" : "text-rose-400 text-[11px]"}>{passCount} / 4 PASSED</span>
-        </div>
-
-        <div className="space-y-2 text-xs">
+        <div className="space-y-px">
           {RULE_ROWS.map((item) => {
             const failed = isLive && failedIds.has(item.id);
             return (
-              <div key={item.id} className="flex items-center justify-between p-2 rounded-lg bg-darkbg-800/50 border border-slate-800/80">
-                <div>
-                  <div className="font-mono text-slate-200 font-medium">
-                    <span className="text-slate-500 mr-1.5">{item.id}</span>{item.label}
+              <div
+                key={item.id}
+                className="flex items-center justify-between gap-4 py-2.5 border-b border-line/60 last:border-0"
+              >
+                <div className="min-w-0 flex items-start gap-3">
+                  <span className="font-mono text-micro text-ink-tertiary pt-0.5 w-5 shrink-0">
+                    {item.id}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-label text-ink-primary">{item.label}</div>
+                    <div className="text-micro text-ink-tertiary">{item.detail}</div>
                   </div>
-                  <div className="text-[11px] text-slate-400">{item.detail}</div>
                 </div>
-                <span className={failed
-                  ? 'px-2 py-0.5 rounded text-[10px] font-mono font-bold border flex items-center gap-1 bg-rose-500/20 text-rose-300 border-rose-500/40'
-                  : 'px-2 py-0.5 rounded text-[10px] font-mono font-bold border flex items-center gap-1 bg-emerald-500/20 text-emerald-300 border-emerald-500/40'}>
-                  {failed ? <AlertTriangle className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
-                  {failed ? 'FAIL' : 'PASS'}
-                </span>
+                <Badge tone={failed ? 'critical' : 'positive'}
+                       icon={failed ? AlertTriangle : CheckCircle2}>
+                  {failed ? 'Fail' : 'Pass'}
+                </Badge>
               </div>
             );
           })}
         </div>
-      </div>
+      </Panel>
     </div>
   );
 }

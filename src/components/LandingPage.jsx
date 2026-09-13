@@ -40,11 +40,32 @@ export default function LandingPage({ onEnter }) {
     <div className="relative min-h-screen bg-surface-base text-ink-primary overflow-hidden">
       <div className="absolute inset-0 hero-wash pointer-events-none" />
 
+      {/* Vertical rules on the layout's own columns. Structure, not decoration:
+          they mark where content aligns, which makes the generous whitespace
+          read as deliberate rather than empty. */}
+      <div className="absolute inset-0 pointer-events-none hidden md:block">
+        <div className="mx-auto w-full max-w-5xl h-full px-6 sm:px-10 relative">
+          {[0, 33.333, 66.666, 100].map((pct, i) => (
+            <motion.div
+              key={pct}
+              className="absolute top-0 bottom-0 w-px bg-line/70"
+              // transformOrigin is load-bearing: scaleY without it grows
+              // from the centre outward, so the rules would appear to open
+              // from the middle of the page rather than draw downward.
+              style={{ left: `${pct}%`, transformOrigin: 'top' }}
+              initial={reduce ? { opacity: 0 } : { scaleY: 0, opacity: 0 }}
+              animate={{ scaleY: 1, opacity: 1 }}
+              transition={{ duration: 1.4, delay: 0.1 + i * 0.08, ease: EASE }}
+            />
+          ))}
+        </div>
+      </div>
+
       <div className="relative mx-auto w-full max-w-5xl px-6 sm:px-10 min-h-screen flex flex-col">
         {/* Masthead */}
         <motion.header
           {...rise(0)}
-          className="pt-10 flex items-center justify-between"
+          className="pt-10 pb-10 flex items-center justify-between border-b border-line/70"
         >
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-md border border-line bg-surface-1 flex items-center justify-center">
@@ -58,7 +79,7 @@ export default function LandingPage({ onEnter }) {
         </motion.header>
 
         {/* Hero */}
-        <main className="flex-1 flex flex-col justify-center py-20">
+        <main className="flex-1 flex flex-col justify-center py-24 lg:py-32">
           <motion.div {...rise(0.1)}>
             <Label className="text-accent-soft">
               Multi-agent generative earth observation
@@ -82,7 +103,7 @@ export default function LandingPage({ onEnter }) {
 
           <motion.p
             {...rise(0.5)}
-            className="mt-8 max-w-2xl text-body sm:text-[0.95rem] leading-relaxed text-ink-secondary"
+            className="mt-10 max-w-[46ch] text-body sm:text-[0.95rem] leading-[1.75] text-ink-secondary"
           >
             Rural water and land interventions in semi-arid India are funded
             without any way to see their outcome. This engine generates the
@@ -93,7 +114,7 @@ export default function LandingPage({ onEnter }) {
 
           <motion.p
             {...rise(0.62)}
-            className="mt-4 max-w-2xl text-label leading-relaxed text-ink-tertiary"
+            className="mt-5 max-w-[52ch] text-label leading-[1.8] text-ink-tertiary"
           >
             Water cannot rest on a slope. Vegetation cannot outgrow its
             biological rate. Terrain outside the intervention must survive
@@ -101,7 +122,7 @@ export default function LandingPage({ onEnter }) {
             pixel it threw away.
           </motion.p>
 
-          <motion.div {...rise(0.74)} className="mt-12 flex items-center gap-5">
+          <motion.div {...rise(0.74)} className="mt-14 flex items-center gap-6">
             <Button
               size="lg"
               variant="primary"
@@ -119,10 +140,10 @@ export default function LandingPage({ onEnter }) {
         {/* Proof points */}
         <motion.section
           {...rise(0.9)}
-          className="pb-14 grid grid-cols-1 sm:grid-cols-3 gap-px bg-line rounded-xl overflow-hidden border border-line"
+          className="pb-16 grid grid-cols-1 sm:grid-cols-3 border-t border-line/70"
         >
           {PROOF_POINTS.map(({ icon: Icon, value, label, caption }) => (
-            <div key={label} className="bg-surface-1 px-6 py-6 flex flex-col gap-2">
+            <div key={label} className="px-6 py-8 flex flex-col gap-2 border-r border-line/70 last:border-r-0 first:pl-0">
               <Icon className="w-4 h-4 text-ink-tertiary" strokeWidth={1.75} />
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="font-mono text-h1 font-medium text-ink-primary">

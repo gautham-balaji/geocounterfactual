@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle, Droplets, Mountain, Sprout, Square } from 'lucide-react';
+import { cn, Label, Badge } from './ui/primitives';
 
 /**
  * Stack of transparent RGBA overlays rendered above the AFTER scene.
@@ -15,7 +16,7 @@ export const OVERLAY_DEFS = [
     id: 'rejection',
     label: 'Critic rejection',
     icon: AlertTriangle,
-    colour: 'text-rose-300 border-rose-500/50 bg-rose-500/15',
+    colour: 'text-critical border-critical/40 bg-critical/10',
     // The headline artifact: what the Critic threw out on its first pass.
     // Sourced from rejection_history[0], not the final feedback mask, which
     // is empty by definition on an approved run.
@@ -28,7 +29,7 @@ export const OVERLAY_DEFS = [
     id: 'footprint',
     label: 'Intervention footprint',
     icon: Square,
-    colour: 'text-cyan-300 border-cyan-500/50 bg-cyan-500/15',
+    colour: 'text-info border-info/40 bg-info/10',
     describe: (s) => s?.footprint_px
       ? `${((s.footprint_px * 100) / 1e4).toFixed(1)} ha treated`
       : 'no footprint',
@@ -38,7 +39,7 @@ export const OVERLAY_DEFS = [
     id: 'impoundment',
     label: 'Impounded water',
     icon: Droplets,
-    colour: 'text-blue-300 border-blue-500/50 bg-blue-500/15',
+    colour: 'text-accent-soft border-accent/40 bg-accent-subtle',
     describe: (s) => s?.impoundment_px
       ? `${((s.impoundment_px * 100) / 1e4).toFixed(2)} ha surface water`
       : 'no impoundment',
@@ -48,7 +49,7 @@ export const OVERLAY_DEFS = [
     id: 'ndvi_delta',
     label: 'NDVI change',
     icon: Sprout,
-    colour: 'text-emerald-300 border-emerald-500/50 bg-emerald-500/15',
+    colour: 'text-positive border-positive/40 bg-positive/10',
     describe: () => 'greening / browning, |Δ| ≥ 0.05',
     modelled: true,
   },
@@ -56,7 +57,7 @@ export const OVERLAY_DEFS = [
     id: 'steep_terrain',
     label: 'Slope > 2.5°',
     icon: Mountain,
-    colour: 'text-amber-300 border-amber-500/50 bg-amber-500/15',
+    colour: 'text-caution border-caution/40 bg-caution/10',
     describe: () => 'where rule R1 forbids standing water',
     modelled: false,
   },
@@ -89,13 +90,11 @@ export function XAIToolbar({ overlays, stats, active, onToggle,
   const disabled = !overlays;
 
   return (
-    <div className="glass-panel p-3 rounded-xl border border-slate-800 space-y-3">
+    <div className="rounded-xl bg-surface-1 border border-line p-5 space-y-5">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-mono font-semibold text-slate-300">
-          EXPLAINABILITY OVERLAYS
-        </span>
+        <Label>Explainability overlays</Label>
         {disabled && (
-          <span className="text-[10px] font-mono text-slate-500">
+          <span className="text-micro text-ink-tertiary">
             run a simulation to enable
           </span>
         )}
@@ -112,15 +111,18 @@ export function XAIToolbar({ overlays, stats, active, onToggle,
               disabled={disabled || !has}
               onClick={() => onToggle(d.id)}
               title={d.describe(stats)}
-              className={`text-[11px] px-2.5 py-1.5 rounded-lg font-mono border transition flex items-center gap-1.5 ${
-                on ? d.colour + ' font-semibold'
-                   : 'bg-slate-800/60 text-slate-400 border-transparent hover:text-slate-200'
-              } ${(disabled || !has) ? 'opacity-40 cursor-not-allowed' : ''}`}
+              className={cn(
+                'text-label px-2.5 h-8 rounded-lg border flex items-center gap-1.5',
+                'transition-colors duration-150',
+                on ? d.colour + ' font-medium'
+                   : 'bg-transparent text-ink-tertiary border-line hover:bg-surface-2 hover:text-ink-secondary',
+                (disabled || !has) && 'opacity-40 cursor-not-allowed',
+              )}
             >
               <Icon className="w-3.5 h-3.5" />
               {d.label}
               {d.modelled && (
-                <span className="px-1 rounded text-[8px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                <span className="px-1 rounded text-[9px] font-medium bg-caution/15 text-caution border border-caution/30">
                   MODELLED
                 </span>
               )}
@@ -129,34 +131,40 @@ export function XAIToolbar({ overlays, stats, active, onToggle,
         })}
       </div>
 
-      <div className="flex flex-wrap items-center gap-4 pt-1 border-t border-slate-800">
+      <div className="flex flex-wrap items-center gap-4 pt-4 border-t border-line">
         <button
           disabled={disabled}
           onClick={onAmplify}
-          className={`text-[11px] px-2.5 py-1.5 rounded-lg font-mono border transition ${
-            amplify ? 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/50 font-semibold'
-                    : 'bg-slate-800/60 text-slate-400 border-transparent hover:text-slate-200'
-          } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+          className={cn(
+            'text-label px-3 h-8 rounded-lg border transition-colors duration-150',
+            amplify
+              ? 'bg-accent-subtle text-accent-soft border-accent/40 font-medium'
+              : 'bg-transparent text-ink-tertiary border-line hover:bg-surface-2 hover:text-ink-secondary',
+            disabled && 'opacity-40 cursor-not-allowed',
+          )}
         >
           Δ Amplify
         </button>
 
         {amplify && (
-          <label className="flex items-center gap-2 text-[10px] font-mono text-slate-400">
+          <label className="flex items-center gap-2 text-micro text-ink-tertiary">
             gain {gain}×
             <input type="range" min="1" max="20" value={gain}
                    onChange={(e) => onGain(Number(e.target.value))}
-                   className="w-24 accent-fuchsia-400" />
+                   className="w-24 accent-accent" />
           </label>
         )}
 
         <button
           disabled={disabled}
           onClick={onBlink}
-          className={`text-[11px] px-2.5 py-1.5 rounded-lg font-mono border transition ${
-            blink ? 'bg-violet-500/20 text-violet-300 border-violet-500/50 font-semibold'
-                  : 'bg-slate-800/60 text-slate-400 border-transparent hover:text-slate-200'
-          } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+          className={cn(
+            'text-label px-3 h-8 rounded-lg border transition-colors duration-150',
+            blink
+              ? 'bg-accent-subtle text-accent-soft border-accent/40 font-medium'
+              : 'bg-transparent text-ink-tertiary border-line hover:bg-surface-2 hover:text-ink-secondary',
+            disabled && 'opacity-40 cursor-not-allowed',
+          )}
           title="Alternate before/after in place - far better than a slider for spotting small changes"
         >
           A/B Blink
@@ -165,26 +173,33 @@ export function XAIToolbar({ overlays, stats, active, onToggle,
         <button
           disabled={disabled}
           onClick={onLoupe}
-          className={`text-[11px] px-2.5 py-1.5 rounded-lg font-mono border transition ${
-            loupe ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 font-semibold'
-                  : 'bg-slate-800/60 text-slate-400 border-transparent hover:text-slate-200'
-          } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+          className={cn(
+            'text-label px-3 h-8 rounded-lg border transition-colors duration-150',
+            loupe
+              ? 'bg-accent-subtle text-accent-soft border-accent/40 font-medium'
+              : 'bg-transparent text-ink-tertiary border-line hover:bg-surface-2 hover:text-ink-secondary',
+            disabled && 'opacity-40 cursor-not-allowed',
+          )}
         >
           Loupe 3×
         </button>
 
-        <label className="flex items-center gap-2 text-[10px] font-mono text-slate-400 ml-auto">
+        <label className="flex items-center gap-2 text-micro text-ink-tertiary ml-auto">
           opacity
           <input type="range" min="0.2" max="1" step="0.05" value={opacity}
                  onChange={(e) => onOpacity(Number(e.target.value))}
-                 className="w-24 accent-cyan-400" />
+                 className="w-24 accent-accent" />
         </label>
       </div>
 
       {stats?.rejection_violations?.length > 0 && (
-        <div className="text-[10px] font-mono text-rose-300/90 bg-rose-950/40 border border-rose-500/30 rounded-lg p-2 leading-relaxed">
-          <span className="font-bold">Rejected at iteration {stats.rejection_iteration}:</span>{' '}
-          {stats.rejection_violations[0]}
+        <div className="rounded-lg border border-critical/25 bg-critical/5 px-3 py-2.5">
+          <div className="text-micro text-critical/80 mb-1">
+            Rejected at iteration {stats.rejection_iteration}
+          </div>
+          <div className="font-mono text-micro text-critical leading-relaxed">
+            {stats.rejection_violations[0]}
+          </div>
         </div>
       )}
     </div>

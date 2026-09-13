@@ -1,68 +1,91 @@
-import React from 'react';
-import { Globe2, Play, GitBranch, Database, ShieldCheck, Activity } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Play, Database, GitBranch } from 'lucide-react';
+import { checkHealth } from '../services/api';
+import { cn, Badge } from './ui/primitives';
+
+const TABS = [
+  { id: 'simulator', label: 'Command center', icon: Play },
+  { id: 'methodology', label: 'Data & methodology', icon: Database },
+];
 
 export default function Header({ activeTab, setActiveTab }) {
-  return (
-    <header className="sticky top-0 z-50 glass-panel border-b border-slate-800 backdrop-blur-xl bg-darkbg-900/85">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        {/* Brand Logo & Title */}
-        <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('simulator')}>
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-emerald-500 p-0.5 shadow-glow-cyan">
-            <div className="w-full h-full bg-darkbg-900 rounded-[10px] flex items-center justify-center text-cyan-400">
-              <Globe2 className="w-5 h-5 animate-pulse-slow" />
-            </div>
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg font-extrabold tracking-tight text-white font-mono">
-                Geo<span className="text-cyan-400">Counterfactual</span>
-              </h1>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
-                PROTOTYPE v1.0
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400 font-mono hidden sm:block">
-              Multi-Agent Generative Satellite Intervention Platform
-            </p>
-          </div>
-        </div>
+  // These badges used to be hardcoded to "ONLINE" and "CONNECTED" -- they
+  // said so with the backend dead. A status indicator that cannot report a
+  // problem is worse than none, so it now reflects the real health check.
+  const [health, setHealth] = useState(null);
 
-        {/* Tab Navigation Pills */}
+  useEffect(() => {
+    let cancelled = false;
+    const poll = () => checkHealth().then((h) => { if (!cancelled) setHealth(h); });
+    poll();
+    const id = setInterval(poll, 20000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  const online = health?.online;
+  const geeUp = health?.gee === 'available';
+
+  return (
+    <header className="sticky top-0 z-50 border-b border-line bg-surface-base/85 backdrop-blur-xl">
+      <div className="max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-12 h-16 flex items-center justify-between gap-8">
+        {/* Wordmark */}
+        <button
+          onClick={() => setActiveTab('simulator')}
+          className="flex items-center gap-3 group shrink-0"
+        >
+          <div className="w-8 h-8 rounded-lg border border-line bg-surface-1 flex items-center justify-center transition-colors duration-150 group-hover:border-line-strong">
+            <GitBranch className="w-4 h-4 text-accent-soft" strokeWidth={1.75} />
+          </div>
+          <div className="text-left hidden sm:block">
+            <div className="text-body font-medium text-ink-primary leading-tight">
+              GeoCounterfactual
+            </div>
+            <div className="text-micro text-ink-tertiary leading-tight">
+              Simulation engine
+            </div>
+          </div>
+        </button>
+
+        {/* Tabs -- underline, not pills */}
         <nav className="flex items-center gap-1">
-          {[
-            { id: 'simulator', label: '1. Command Center', icon: Play },
-            { id: 'methodology', label: '2. Data & Methodology', icon: Database }
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
+          {TABS.map(({ id, label, icon: Icon }) => {
+            const isActive = activeTab === id;
             return (
               <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`relative flex items-center gap-2 px-3 py-2 text-label font-medium transition-colors duration-150 ${
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={cn(
+                  'relative flex items-center gap-2 px-3 h-16 text-label font-medium',
+                  'transition-colors duration-150',
                   isActive
                     ? 'text-ink-primary'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
-                }`}
+                    : 'text-ink-tertiary hover:text-ink-secondary',
+                )}
               >
-                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
-                <span>{tab.label}</span>
+                <Icon className="w-3.5 h-3.5" strokeWidth={1.75} />
+                <span className="whitespace-nowrap">{label}</span>
+                {isActive && (
+                  <span className="absolute inset-x-2 bottom-0 h-px bg-accent" />
+                )}
               </button>
             );
           })}
         </nav>
 
-        {/* Status Indicators */}
-        <div className="hidden lg:flex items-center gap-3 text-xs font-mono">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-darkbg-800 border border-slate-800 text-slate-300">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping-slow" />
-            <span>Agent Graph: <strong className="text-emerald-400">ONLINE</strong></span>
-          </div>
-
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-darkbg-800 border border-slate-800 text-slate-300">
-            <Activity className="w-3.5 h-3.5 text-cyan-400" />
-            <span>GEE: <strong className="text-cyan-400">CONNECTED</strong></span>
-          </div>
+        {/* Real status */}
+        <div className="hidden lg:flex items-center gap-2 shrink-0">
+          <Badge tone={online ? 'positive' : 'neutral'}>
+            <span
+              className={cn('w-1.5 h-1.5 rounded-full mr-0.5',
+                online ? 'bg-positive' : 'bg-ink-tertiary')}
+            />
+            {health === null ? 'Checking' : online ? 'Backend live' : 'Offline · mock data'}
+          </Badge>
+          {online && (
+            <Badge tone={geeUp ? 'info' : 'caution'}>
+              {geeUp ? 'Earth Engine' : 'EE unavailable'}
+            </Badge>
+          )}
         </div>
       </div>
     </header>

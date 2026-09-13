@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { Layers, Sliders, Maximize2, ShieldCheck, Eye, Sparkles } from 'lucide-react';
+import { Sliders, Eye, Sparkles } from 'lucide-react';
+import { cn, Label, Badge, ModelledBadge } from './ui/primitives';
 
 // Maps the layer-selector ids to the keys in the backend's `imagery` payload.
 // Layers that are model output rather than measured reflectance.
@@ -61,27 +62,25 @@ export default function SatelliteSlider({
   return (
     <div className="flex flex-col gap-4">
       {/* Layer Selector Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2 glass-panel p-2.5 rounded-xl border border-slate-800">
-        <div className="flex items-center gap-2">
-          <Layers className="w-4 h-4 text-cyan-400" />
-          <span className="text-xs font-mono font-semibold text-slate-300">SPECTRAL BAND VIEW:</span>
-        </div>
-
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <Label>Spectral band</Label>
         <div className="flex items-center gap-1 overflow-x-auto">
           {[
-            { id: 'optical', label: 'Sentinel-2 Optical (RGB)' },
-            { id: 'ndvi', label: 'NDVI Vegetation Heatmap' },
-            { id: 'moisture', label: 'Soil Moisture Index' },
-            { id: 'critic_mask', label: 'Critic Constraint Mask' }
+            { id: 'optical', label: 'Optical RGB' },
+            { id: 'ndvi', label: 'NDVI' },
+            { id: 'moisture', label: 'Soil moisture' },
+            { id: 'critic_mask', label: 'Critic mask' },
           ].map((layer) => (
             <button
               key={layer.id}
               onClick={() => setActiveLayer(layer.id)}
-              className={`text-xs px-3 py-1.5 rounded-lg font-mono transition ${
+              className={cn(
+                'text-label px-3 h-8 rounded-lg whitespace-nowrap',
+                'transition-colors duration-150',
                 activeLayer === layer.id
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/60 font-semibold shadow-glow-cyan'
-                  : 'bg-slate-800/60 text-slate-400 hover:text-slate-200 border border-transparent'
-              }`}
+                  ? 'bg-surface-2 text-ink-primary font-medium'
+                  : 'text-ink-tertiary hover:text-ink-secondary hover:bg-surface-2/60',
+              )}
             >
               {layer.label}
             </button>
@@ -92,7 +91,7 @@ export default function SatelliteSlider({
       {/* Main Image Slider Viewport */}
       <div
         ref={viewportRef}
-        className="relative w-full h-[460px] rounded-2xl overflow-hidden glass-panel border border-slate-800 select-none cursor-ew-resize group"
+        className="relative w-full h-[520px] rounded-xl overflow-hidden bg-surface-1 border border-line select-none cursor-ew-resize"
         onMouseDown={() => setIsDragging(true)}
         onMouseUp={() => setIsDragging(false)}
         onMouseLeave={() => { setIsDragging(false); setCursor(null); }}
@@ -111,19 +110,15 @@ export default function SatelliteSlider({
               pixel-registered with it. */}
           {children}
           {/* Top Right Label */}
-          <div className="absolute top-4 right-4 z-10 bg-emerald-950/80 backdrop-blur-md border border-emerald-500/60 px-3 py-1.5 rounded-lg flex items-center gap-2 shadow-glow-emerald">
-            <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-            <span className="text-xs font-mono font-bold text-emerald-300 uppercase tracking-wider">
-              AFTER: SIMULATED COUNTERFACTUAL
+          <div className="absolute top-4 right-4 z-10 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-base/80 backdrop-blur-md border border-line">
+            <Sparkles className="w-3 h-3 text-accent-soft" strokeWidth={1.75} />
+            <span className="text-micro text-ink-primary">
+              After — simulated
             </span>
             {/* Moisture is the Dynamics agent's own prediction, not an
                 observation. Saying so on the image removes the sharpest
                 line of attack on the work. */}
-            {MODELLED_LAYERS.has(activeLayer) && (
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-200 border border-amber-500/50">
-                MODELLED
-              </span>
-            )}
+            {MODELLED_LAYERS.has(activeLayer) && <ModelledBadge />}
           </div>
         </div>
 
@@ -147,10 +142,10 @@ export default function SatelliteSlider({
               ? <RasterLayer src={layerUrls.before} alt="Baseline Sentinel-2 scene" />
               : <SatelliteImageGraphics layer={activeLayer} mode="before" region={region} />}
             {/* Top Left Label */}
-            <div className="absolute top-4 left-4 z-10 bg-slate-900/80 backdrop-blur-md border border-slate-700 px-3 py-1.5 rounded-lg flex items-center gap-2">
-              <Eye className="w-3.5 h-3.5 text-slate-400" />
-              <span className="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider">
-                BEFORE: BASELINE SATELLITE
+            <div className="absolute top-4 left-4 z-10 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-base/80 backdrop-blur-md border border-line">
+              <Eye className="w-3 h-3 text-ink-tertiary" strokeWidth={1.75} />
+              <span className="text-micro text-ink-secondary">
+                Before — baseline
               </span>
             </div>
           </div>
@@ -158,19 +153,23 @@ export default function SatelliteSlider({
 
         {/* Vertical Divider Handle Line */}
         <div
-          className="absolute top-0 bottom-0 w-1 bg-cyan-400 shadow-glow-cyan z-20 pointer-events-none"
-          style={{ left: `${sliderPosition}%`, opacity: blink ? 0 : 1 }}
+          className="absolute top-0 bottom-0 w-px bg-ink-primary/70 z-20 pointer-events-none"
+          style={{
+            left: `${sliderPosition}%`,
+            opacity: blink ? 0 : 1,
+            transition: isDragging ? 'none' : 'left 220ms cubic-bezier(0.16,1,0.3,1), opacity 200ms ease',
+          }}
         >
           {/* Handle Pill */}
-          <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-9 h-9 rounded-full bg-darkbg-900 border-2 border-cyan-400 flex items-center justify-center text-cyan-300 shadow-xl">
-            <Sliders className="w-4 h-4 rotate-90" />
+          <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-surface-base border border-line-strong flex items-center justify-center text-ink-secondary shadow-elevated">
+            <Sliders className="w-3.5 h-3.5 rotate-90" strokeWidth={1.75} />
           </div>
         </div>
 
         {/* Loupe magnifier: before (left) and after (right) at 3x */}
         {loupe && cursor && hasRaster && (
           <div
-            className="absolute z-30 pointer-events-none rounded-xl overflow-hidden border-2 border-sky-400/80 shadow-2xl"
+            className="absolute z-30 pointer-events-none rounded-lg overflow-hidden border border-line-strong shadow-elevated"
             style={{
               width: 208, height: 104,
               left: `calc(${cursor.xPct}% - 104px)`,
@@ -179,7 +178,7 @@ export default function SatelliteSlider({
           >
             <div className="relative w-full h-full flex">
               {['before', 'after'].map((which) => (
-                <div key={which} className="relative w-1/2 h-full overflow-hidden border-r border-sky-400/40 last:border-r-0">
+                <div key={which} className="relative w-1/2 h-full overflow-hidden border-r border-line-strong last:border-r-0">
                   <div
                     className="absolute inset-0"
                     style={{
@@ -189,8 +188,8 @@ export default function SatelliteSlider({
                       backgroundRepeat: 'no-repeat',
                     }}
                   />
-                  <span className="absolute bottom-0.5 left-1 text-[8px] font-mono font-bold text-white/90 drop-shadow">
-                    {which.toUpperCase()}
+                  <span className="absolute bottom-0.5 left-1 font-mono text-[9px] text-white/85 drop-shadow">
+                    {which}
                   </span>
                 </div>
               ))}
@@ -199,19 +198,24 @@ export default function SatelliteSlider({
         )}
 
         {blink && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-3 py-1 rounded-lg bg-violet-950/85 border border-violet-500/60 text-[11px] font-mono font-bold text-violet-200">
-            A/B BLINK — showing {blinkShowBefore ? 'BEFORE' : 'AFTER'}
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-lg bg-surface-base/85 backdrop-blur-md border border-accent/40">
+            <span className="font-mono text-micro text-accent-soft">
+              A/B · {blinkShowBefore ? 'before' : 'after'}
+            </span>
           </div>
         )}
 
         {/* Bottom Metadata HUD */}
         <div className="absolute bottom-4 left-4 right-4 z-10 flex items-center justify-between pointer-events-none">
-          <div className="bg-darkbg-900/85 backdrop-blur-md border border-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-mono text-slate-300">
-            Coordinates: <span className="text-cyan-400">{region?.lat}°N, {region?.lng}°E</span> • Scale: 10m/px
+          <div className="px-2.5 py-1.5 rounded-lg bg-surface-base/80 backdrop-blur-md border border-line">
+            <span className="font-mono text-micro text-ink-secondary">
+              {region?.lat}°N {region?.lng}°E · 10 m/px
+            </span>
           </div>
 
-          <div className="bg-darkbg-900/85 backdrop-blur-md border border-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-mono text-slate-300 flex items-center gap-1.5">
-            <Sliders className="w-3 h-3 text-cyan-400" /> Drag horizontal slider to compare
+          <div className="px-2.5 py-1.5 rounded-lg bg-surface-base/80 backdrop-blur-md border border-line flex items-center gap-1.5">
+            <Sliders className="w-3 h-3 text-ink-tertiary" strokeWidth={1.75} />
+            <span className="text-micro text-ink-tertiary">Drag to compare</span>
           </div>
         </div>
       </div>
@@ -232,7 +236,7 @@ function RasterLayer({ src, alt }) {
 
   if (failed) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-darkbg-900 text-slate-500 text-xs font-mono">
+      <div className="w-full h-full flex items-center justify-center bg-surface-1 text-ink-tertiary font-mono text-micro">
         Raster unavailable
       </div>
     );

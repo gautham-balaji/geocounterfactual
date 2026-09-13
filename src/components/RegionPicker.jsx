@@ -1,13 +1,14 @@
 import React, { useMemo, useState } from 'react';
-import { Search, MapPin, ShieldCheck } from 'lucide-react';
+import { Search, ShieldCheck } from 'lucide-react';
+import { cn, Label } from './ui/primitives';
 
 /**
  * Searchable target list, grouped by state.
  *
  * With three pilot zones the globe markers were a usable selector. With
  * fifteen they are not -- the markers overlap at any sensible zoom and half
- * of them sit on the far side of the sphere. The globe stays the spatial
- * context; this is the actual control.
+ * sit on the far side of the sphere. The globe stays spatial context; this
+ * is the control.
  */
 export default function RegionPicker({ regions, selectedId, onSelect,
                                        disabled = false }) {
@@ -23,7 +24,7 @@ export default function RegionPicker({ regions, selectedId, onSelect,
 
     const byState = new Map();
     for (const r of matches) {
-      const key = r.state.split(',')[0].trim();
+      const key = r.state.split(',').pop().trim();
       if (!byState.has(key)) byState.set(key, []);
       byState.get(key).push(r);
     }
@@ -34,40 +35,49 @@ export default function RegionPicker({ regions, selectedId, onSelect,
   const shown = grouped.reduce((n, [, rs]) => n + rs.length, 0);
 
   return (
-    <div className="glass-panel p-4 rounded-2xl border border-slate-800 space-y-3">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <label className="text-xs font-mono font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-          <MapPin className="w-4 h-4 text-cyan-400" /> TARGET WATERSHED
-        </label>
-        <span className="text-[11px] font-mono text-emerald-400 flex items-center gap-1">
-          <ShieldCheck className="w-3.5 h-3.5" />
-          {shown === total ? `${total} verified` : `${shown} of ${total}`}
+        <Label>Target watershed</Label>
+        <span className="flex items-center gap-1.5 text-micro text-ink-tertiary">
+          <ShieldCheck className="w-3 h-3" strokeWidth={2} />
+          <span className="font-mono">
+            {shown === total ? total : `${shown}/${total}`}
+          </span>
+          verified
         </span>
       </div>
 
       <div className="relative">
-        <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+        <Search
+          className="w-3.5 h-3.5 text-ink-tertiary absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+          strokeWidth={1.75}
+        />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter by district, state or agro-climatic zone…"
-          className="w-full bg-darkbg-900 border border-slate-700 focus:border-cyan-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 transition"
+          placeholder="Filter by district, state or zone"
+          className={cn(
+            'w-full h-9 pl-9 pr-3 rounded-lg text-label',
+            'bg-surface-2 border border-line text-ink-primary placeholder-ink-tertiary',
+            'transition-colors duration-150',
+            'hover:border-line-strong focus:border-accent focus:outline-none',
+          )}
         />
       </div>
 
-      <div className="max-h-[260px] overflow-y-auto space-y-2.5 pr-1">
+      <div className="max-h-[280px] overflow-y-auto -mx-1 px-1">
         {grouped.length === 0 && (
-          <div className="text-[11px] font-mono text-slate-500 py-4 text-center">
+          <div className="py-8 text-center text-micro text-ink-tertiary">
             No watershed matches “{query}”.
           </div>
         )}
 
-        {grouped.map(([state, rs]) => (
-          <div key={state}>
-            <div className="text-[10px] font-mono uppercase tracking-wider text-slate-500 px-1 pb-1 sticky top-0 bg-darkbg-900/80 backdrop-blur-sm">
-              {state}
+        {grouped.map(([state, rs], gi) => (
+          <div key={state} className={gi > 0 ? 'mt-4' : ''}>
+            <div className="sticky top-0 z-10 bg-surface-1 py-1.5">
+              <Label className="text-ink-tertiary/80">{state}</Label>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-0.5 mt-1">
               {rs.map((r) => {
                 const active = r.id === selectedId;
                 return (
@@ -75,22 +85,36 @@ export default function RegionPicker({ regions, selectedId, onSelect,
                     key={r.id}
                     disabled={disabled}
                     onClick={() => onSelect(r.id)}
-                    className={`w-full text-left px-2.5 py-2 rounded-lg border text-xs transition flex items-center justify-between gap-2 ${
+                    className={cn(
+                      'w-full text-left px-2.5 py-2 rounded-md',
+                      'flex items-center justify-between gap-3',
+                      // Hover is a background shift only -- no scale, no
+                      // border flash. Fifteen rows that all jump on hover
+                      // would be noise.
+                      'transition-colors duration-150',
                       active
-                        ? 'bg-cyan-950/50 border-cyan-500/60 text-cyan-100'
-                        : 'bg-darkbg-800/50 border-slate-800 text-slate-300 hover:bg-slate-800/70 hover:border-slate-700'
-                    } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        ? 'bg-accent-subtle'
+                        : 'hover:bg-surface-2',
+                      disabled && 'opacity-50 cursor-not-allowed',
+                    )}
                   >
-                    <span className="min-w-0">
-                      <span className="block font-semibold text-white truncate">
-                        {r.name}
-                      </span>
-                      <span className="block text-[10px] text-slate-400 truncate">
-                        {r.climateZone} · NDVI {r.baselineMetrics?.ndvi}
+                    <span className="min-w-0 flex items-center gap-2.5">
+                      <span
+                        className={cn('w-1 h-1 rounded-full shrink-0',
+                          active ? 'bg-accent' : 'bg-line-strong')}
+                      />
+                      <span className="min-w-0">
+                        <span className={cn('block text-label truncate',
+                          active ? 'text-ink-primary font-medium' : 'text-ink-secondary')}>
+                          {r.name}
+                        </span>
+                        <span className="block text-micro text-ink-tertiary truncate">
+                          {r.climateZone}
+                        </span>
                       </span>
                     </span>
-                    <span className="text-[10px] font-mono text-slate-500 shrink-0">
-                      {r.lat.toFixed(2)}°N
+                    <span className="font-mono text-micro text-ink-tertiary shrink-0">
+                      {r.baselineMetrics?.ndvi}
                     </span>
                   </button>
                 );
