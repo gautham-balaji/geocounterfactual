@@ -1,77 +1,95 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ShieldCheck, GitBranch, Cpu } from 'lucide-react';
 import Header from './components/Header';
+import LandingPage from './components/LandingPage';
 import SimulatorView from './components/SimulatorView';
 import MethodologyView from './components/MethodologyView';
-import { Globe2, ShieldCheck, GitBranch, Cpu, Terminal } from 'lucide-react';
 
 export default function App() {
+  const [entered, setEntered] = useState(false);
   const [activeTab, setActiveTab] = useState('simulator');
   const [activeRegionId, setActiveRegionId] = useState('anantapur');
-  // The agent stream now lives inside the Command Center alongside the
-  // imagery, so the separate flowchart tab is gone. Kept lifted so a future
-  // consumer (or the methodology view) can read the same run.
+  // The agent stream lives inside the Command Center alongside the imagery,
+  // so the separate flowchart tab is gone. Kept lifted so another consumer
+  // can read the same run.
   const [liveLogs, setLiveLogs] = useState([]);
 
   return (
-    <div className="min-h-screen bg-darkbg-900 text-slate-100 flex flex-col selection:bg-cyan-500 selection:text-black bg-tech-grid">
-      {/* Top Header Navigation */}
-      <Header activeTab={activeTab} setActiveTab={setActiveTab} />
+    <AnimatePresence mode="wait">
+      {!entered ? (
+        <motion.div
+          key="landing"
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <LandingPage onEnter={() => setEntered(true)} />
+        </motion.div>
+      ) : (
+        <motion.div
+          key="app"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          className="min-h-screen bg-surface-base text-ink-primary flex flex-col"
+        >
+          <Header activeTab={activeTab} setActiveTab={setActiveTab} />
 
-      {/* Main Content Viewport */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <AnimatePresence mode="wait">
-          {activeTab === 'simulator' && (
-            <motion.div
-              key="simulator"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
-            >
-              <SimulatorView
-                activeRegionId={activeRegionId}
-                setActiveRegionId={setActiveRegionId}
-                onLogsChange={setLiveLogs}
-              />
-            </motion.div>
-          )}
+          <main className="flex-1 w-full max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-12 py-10 lg:py-14">
+            <AnimatePresence mode="wait">
+              {activeTab === 'simulator' && (
+                <motion.div
+                  key="simulator"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <SimulatorView
+                    activeRegionId={activeRegionId}
+                    setActiveRegionId={setActiveRegionId}
+                    onLogsChange={setLiveLogs}
+                  />
+                </motion.div>
+              )}
 
-          {activeTab === 'methodology' && (
-            <motion.div
-              key="methodology"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.25 }}
-            >
-              <MethodologyView />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </main>
+              {activeTab === 'methodology' && (
+                <motion.div
+                  key="methodology"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <MethodologyView />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </main>
 
-      {/* Footer Command Bar */}
-      <footer className="border-t border-slate-800 glass-panel py-6 text-xs font-mono text-slate-400">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Globe2 className="w-4 h-4 text-cyan-400" />
-            <span>GeoCounterfactual — Final-Year Engineering Project Prototype</span>
-          </div>
-
-          <div className="flex items-center gap-4 text-[11px]">
-            <span className="flex items-center gap-1 text-emerald-400">
-              <ShieldCheck className="w-3.5 h-3.5" /> Physics Critic Guarded
-            </span>
-            <span className="flex items-center gap-1 text-cyan-400">
-              <GitBranch className="w-3.5 h-3.5" /> LangGraph Orchestration
-            </span>
-            <span className="flex items-center gap-1 text-indigo-400">
-              <Cpu className="w-3.5 h-3.5" /> ControlNet Diffusion
-            </span>
-          </div>
-        </div>
-      </footer>
-    </div>
+          <footer className="border-t border-line py-6">
+            <div className="max-w-[1600px] mx-auto px-6 sm:px-8 lg:px-12 flex flex-col sm:flex-row items-center justify-between gap-4 text-micro text-ink-tertiary">
+              <span>
+                GeoCounterfactual — final-year engineering research prototype
+              </span>
+              <div className="flex items-center gap-6">
+                <span className="flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" strokeWidth={1.75} />
+                  Physics critic
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <GitBranch className="w-3.5 h-3.5" strokeWidth={1.75} />
+                  LangGraph
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Cpu className="w-3.5 h-3.5" strokeWidth={1.75} />
+                  ControlNet diffusion
+                </span>
+              </div>
+            </div>
+          </footer>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

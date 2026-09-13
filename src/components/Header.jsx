@@ -28,7 +28,7 @@ export default function Header({ activeTab, setActiveTab }) {
         </div>
 
         {/* Tab Navigation Pills */}
-        <nav className="flex items-center gap-1 bg-darkbg-800/90 p-1 rounded-xl border border-slate-800">
+        <nav className="flex items-center gap-1">
           {[
             { id: 'simulator', label: '1. Command Center', icon: Play },
             { id: 'methodology', label: '2. Data & Methodology', icon: Database }
@@ -39,9 +39,9 @@ export default function Header({ activeTab, setActiveTab }) {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-mono font-medium transition ${
+                className={`relative flex items-center gap-2 px-3 py-2 text-label font-medium transition-colors duration-150 ${
                   isActive
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/60 font-bold shadow-glow-cyan'
+                    ? 'text-ink-primary'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
                 }`}
               >

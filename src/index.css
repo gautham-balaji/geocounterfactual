@@ -3,82 +3,109 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
   body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    background-color: #060911;
+    background-color: #0A0A0B;
+    color: #ECECEE;
+    /* Inter's default figures are proportional, which makes a changing
+       metric jitter. Tabular figures keep numbers from dancing as they
+       update during a run. */
+    font-variant-numeric: tabular-nums;
   }
-  
+
   code, pre, .font-mono {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-variant-ligatures: none;
+  }
+
+  /* One focus treatment everywhere, keyboard-only. */
+  :focus-visible {
+    outline: 2px solid #6366F1;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: rgba(99, 102, 241, 0.30);
+    color: #ECECEE;
   }
 }
 
-/* Custom scrollbars for dark tech UI */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: #0b111e;
-}
-
+/* ---------------------------------------------------------------------
+   Scrollbars -- quiet, and they no longer turn cyan on hover.
+   --------------------------------------------------------------------- */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 3px;
+  background: #26262B;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
+::-webkit-scrollbar-thumb:hover { background: #3A3A41; background-clip: content-box; }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #06b6d4;
-}
-
-/* Technical HUD Background Grid & Scanline Effect */
-.bg-tech-grid {
-  background-size: 32px 32px;
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-}
-
-.bg-dot-pattern {
-  background-size: 20px 20px;
-  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
-}
-
+/* ---------------------------------------------------------------------
+   .glass-panel is referenced 25 times across components this pass does not
+   touch. Rather than edit all of them, the definition is retuned here: the
+   heavy 12px blur and bright white border become a flat surface with a
+   hairline. Those files inherit the new look with no code change.
+   --------------------------------------------------------------------- */
 .glass-panel {
-  background: rgba(11, 17, 30, 0.75);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #111113;
+  border: 1px solid #26262B;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .glass-panel-glow {
-  background: rgba(11, 17, 30, 0.85);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(6, 182, 212, 0.3);
-  box-shadow: 0 0 25px -5px rgba(6, 182, 212, 0.15);
+  background: #111113;
+  border: 1px solid #35353C;
+  box-shadow: none;
 }
 
-/* Animated flow line SVG dashed stroke */
+/* Deliberately emptied rather than deleted: App.jsx and others still carry
+   these class names, and an empty rule is the least surprising way to drop
+   the effect without touching files scheduled for a later pass. */
+.bg-tech-grid { background-image: none; }
+.scanline-overlay { background: none; }
+
+.bg-dot-pattern {
+  background-size: 22px 22px;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+}
+
+/* Animated flow line for the pipeline diagram. */
 .flow-line-active {
   stroke-dasharray: 8 6;
   animation: dash 1s linear infinite;
 }
 
 @keyframes dash {
-  to {
-    stroke-dashoffset: -28;
-  }
+  to { stroke-dashoffset: -28; }
 }
 
-/* Scanline animation overlay */
-.scanline-overlay {
-  background: linear-gradient(
-    to bottom,
-    rgba(255,255,255,0),
-    rgba(255,255,255,0) 50%,
-    rgba(0, 0, 0, 0.3) 50%,
-    rgba(0, 0, 0, 0.3)
-  );
-  background-size: 100% 4px;
+/* Landing hero: a single slow, very low-contrast wash. Replaces the
+   scanline/grid overlays -- atmosphere without the arcade look. */
+.hero-wash {
+  background:
+    radial-gradient(60rem 40rem at 50% -10%, rgba(99, 102, 241, 0.10), transparent 60%),
+    radial-gradient(40rem 30rem at 85% 20%, rgba(56, 189, 248, 0.05), transparent 55%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

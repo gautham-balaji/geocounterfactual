@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
-import { Sparkles, Play, RotateCcw, MapPin, Send, Cpu, CheckCircle2, AlertTriangle, Layers } from 'lucide-react';
+import { Sparkles, Play, RotateCcw, MapPin, Send, Cpu, CheckCircle2,
+         AlertTriangle, Layers, FileText, Trees, ShieldCheck } from 'lucide-react';
 import Globe3D from './Globe3D';
 import SatelliteSlider from './SatelliteSlider';
 import MetricsPanel from './MetricsPanel';
@@ -139,9 +140,9 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-10">
       {/* Upper Status Banner */}
-      <div className="flex flex-wrap items-center justify-between gap-4 glass-panel p-4 rounded-2xl border border-slate-800">
+      <div className="flex flex-wrap items-center justify-between gap-6 glass-panel p-6 rounded-xl">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
             <Cpu className="w-5 h-5 animate-pulse" />
@@ -168,9 +169,9 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
       </div>
 
       {/* Main Grid: Left Control Panel vs Right Visual Output */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 xl:gap-12 items-start">
         {/* Left Column (5/12): 3D Globe + Intervention Input Panel */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-5 space-y-8">
           {/* 3D Interactive Rotating Earth Globe */}
           <Globe3D
             regions={MOCK_REGIONS}
@@ -226,7 +227,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
           />
 
           {/* Intervention Input Box & Preset Buttons */}
-          <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-4">
+          <div className="glass-panel p-6 rounded-xl space-y-5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-mono font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                 <Send className="w-4 h-4 text-cyan-400" /> NATURAL LANGUAGE INTERVENTION
@@ -312,23 +313,40 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
 
             {/* Pipeline Execution HUD Step Progress */}
             {isSimulating && (
-              <div className="p-3 rounded-xl bg-darkbg-900 border border-cyan-500/40 space-y-2 animate-fadeIn">
-                <div className="flex items-center justify-between text-xs font-mono text-cyan-400 font-bold">
-                  <span>ORCHESTRATING AGENTS</span>
-                  <span>Step {simStep} of 5</span>
+              <div className="p-4 rounded-lg bg-surface-2 border border-line space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-micro uppercase tracking-wider text-ink-tertiary">Orchestrating agents</span>
+                  <span className="font-mono text-micro text-ink-secondary">{simStep} / 5</span>
                 </div>
-                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div className="w-full bg-surface-3 h-1 rounded-full overflow-hidden">
                   <div
                     className="bg-gradient-to-r from-emerald-400 to-cyan-400 h-full transition-all duration-500"
                     style={{ width: `${(simStep / 5) * 100}%` }}
                   />
                 </div>
-                <div className="text-xs font-mono text-slate-300">
-                  {simStep === 1 && '📥 Input Handler: Ingesting Sentinel-2 Bands & Text...'}
-                  {simStep === 2 && '🗺️ Intervention Planner: Painting Spatial Stream Mask...'}
-                  {simStep === 3 && '🌱 Eco-Hydrological Dynamics: Computing 5-Year Infiltration...'}
-                  {simStep === 4 && '🎨 Generator (Diffusion): Synthesizing Counterfactual Scene...'}
-                  {simStep === 5 && '🛡️ Physical-Plausibility Critic: Evaluating Slope & DEM Constraints...'}
+                <div className="text-label text-ink-secondary">
+                {(() => {
+                  const STEP_STATUS = [
+                    null,
+                    [FileText, 'Input Handler', 'Ingesting Sentinel-2 bands and DEM'],
+                    [MapPin, 'Intervention Planner', 'Routing drainage, siting structures'],
+                    [Trees, 'Eco-Hydrological Dynamics', 'Computing the 5-year growth envelope'],
+                    [Cpu, 'Generator', 'Synthesizing the counterfactual scene'],
+                    [ShieldCheck, 'Physical-Plausibility Critic', 'Evaluating slope and DEM constraints'],
+                  ];
+                  const entry = STEP_STATUS[simStep];
+                  if (!entry) return null;
+                  const [Icon, agent, detail] = entry;
+                  return (
+                    <span className="flex items-center gap-2 min-w-0">
+                      <Icon className="w-3.5 h-3.5 text-accent-soft shrink-0" strokeWidth={1.75} />
+                      <span className="truncate">
+                        <span className="text-ink-primary">{agent}</span>
+                        <span className="text-ink-tertiary"> \u2014 {detail}</span>
+                      </span>
+                    </span>
+                  );
+                })()}
                 </div>
               </div>
             )}
@@ -336,7 +354,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
         </div>
 
         {/* Right Column (7/12): Satellite Slider + xAI + live terminal */}
-        <div className="lg:col-span-7 space-y-6">
+        <div className="lg:col-span-7 space-y-8">
           {/* Before & After Satellite Image Slider */}
           <SatelliteSlider
             imagery={result?.imagery ?? null}
@@ -380,7 +398,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
           {/* Command-center side-by-side: the agent stream sits next to the
               imagery, so the Critic's rejection and the pixels it rejected
               are visible in one glance instead of on separate tabs. */}
-          <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 items-start">
+          <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
             <div className="xl:col-span-2 space-y-4">
               <PipelineRail
                 logs={logs}
