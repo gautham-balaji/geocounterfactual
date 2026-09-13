@@ -40,3 +40,6 @@ backend/outputs/
 Thumbs.db
 .vscode/
 .idea/
+
+backend/data/pairs.tar
+backend/data/pairs.zip
