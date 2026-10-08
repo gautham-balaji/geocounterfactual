@@ -49,6 +49,9 @@ class CriticVerdict:
     feedback_mask: np.ndarray
     results: List[R.RuleResult] = field(default_factory=list)
     metrics: Dict[str, Any] = field(default_factory=dict)
+    # False in shadow mode: the verdict is recorded but must not trigger a
+    # regeneration. Kept separate from is_approved, which stays honest.
+    gating: bool = True
 
     def as_dict(self) -> Dict[str, Any]:
         """Shape expected by critic_node / CriticProtocol."""
@@ -59,15 +62,20 @@ class CriticVerdict:
             "feedback_mask": self.feedback_mask,
             "results": self.results,
             "metrics": self.metrics,
+            "gating": self.gating,
         }
 
 
 class PhysicalPlausibilityCritic:
     """Full four-rule physics engine.
 
-    `enabled_rules` exists for the ablation: passing an empty tuple gives the
-    critic-OFF arm (everything approved, no feedback), and passing a single id
-    isolates one physical law's contribution.
+    `enabled_rules` exists for the ablation: passing a single id isolates one
+    physical law's contribution. An empty tuple evaluates nothing at all.
+
+    `gating=False` is shadow mode, the measuring control arm: every enabled
+    rule is still evaluated and the verdict recorded, but a violation does not
+    send the scene back to the generator. This is what makes the critic-OFF
+    arm produce a violation rate rather than an empty record.
     """
 
     def __init__(
@@ -76,9 +84,11 @@ class PhysicalPlausibilityCritic:
         max_slope_for_water_deg: Optional[float] = None,
         max_annual_ndvi_delta: Optional[float] = None,
         min_outside_ssim: Optional[float] = None,
+        gating: bool = True,
     ):
         self.enabled_rules = tuple(ALL_RULES if enabled_rules is None
                                    else enabled_rules)
+        self.gating = bool(gating)
         self.max_slope = (settings.max_slope_for_water_deg
                           if max_slope_for_water_deg is None
                           else max_slope_for_water_deg)
@@ -93,8 +103,10 @@ class PhysicalPlausibilityCritic:
         if not self.enabled_rules:
             return "critic-OFF (no rules)"
         if len(self.enabled_rules) == len(ALL_RULES):
-            return "full physics (R1-R4)"
-        return f"partial ({'+'.join(self.enabled_rules)})"
+            label = "full physics (R1-R4)"
+        else:
+            label = f"partial ({'+'.join(self.enabled_rules)})"
+        return label if self.gating else f"{label} [shadow, not gating]"
 
     # -- core -------------------------------------------------------------
 
@@ -152,14 +164,16 @@ class PhysicalPlausibilityCritic:
                    for r in results}
         metrics["evaluated_rules"] = list(self.enabled_rules)
         metrics["feedback_cells"] = int(feedback.sum())
+        metrics["gating"] = self.gating
 
         return CriticVerdict(
-            is_approved=not violations,
+            is_approved=not violations,   # honest in both modes
             score=score,
             violations=violations,
             feedback_mask=feedback,
             results=results,
             metrics=metrics,
+            gating=self.gating,
         )
 
     # -- LangGraph adapter -------------------------------------------------
@@ -181,5 +195,20 @@ class PhysicalPlausibilityCritic:
 
 
 def critic_off() -> PhysicalPlausibilityCritic:
-    """Control arm for the critic-ON vs critic-OFF experiment."""
+    """No rules evaluated at all: approves everything, records nothing.
+
+    Not usable as the ablation's control arm -- it yields no violation rate
+    to compare against. Use critic_shadow() for that.
+    """
     return PhysicalPlausibilityCritic(enabled_rules=())
+
+
+def critic_shadow(enabled_rules: Optional[tuple] = None
+                  ) -> PhysicalPlausibilityCritic:
+    """Control arm for the critic-ON vs critic-OFF experiment.
+
+    Scores every output with the full rule set but never gates, so the OFF
+    arm measures the violation rate of unconstrained generation instead of
+    reporting an empty record.
+    """
+    return PhysicalPlausibilityCritic(enabled_rules=enabled_rules, gating=False)

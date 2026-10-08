@@ -57,7 +57,8 @@ class GeoCounterfactualState(TypedDict, total=False):
     plausibility_score: float         # 0.0 - 100.0
     violations: List[str]
     critic_feedback_mask: Any         # spatial mask of THIS pass's rejects
-    is_approved: bool
+    is_approved: bool                 # the honest verdict, in every mode
+    critic_gating: bool               # False in shadow mode: record, don't loop
     # Every rejection, kept. critic_feedback_mask has replace semantics, so
     # on a successful run it is all-zeros by the end -- which meant the one
     # artifact the frontend most needs to show (what the Critic threw out)
@@ -84,6 +85,7 @@ def initial_state(
         plausibility_score=0.0,
         violations=[],
         is_approved=False,
+        critic_gating=True,
         rejection_history=[],
         execution_logs=[],
     )

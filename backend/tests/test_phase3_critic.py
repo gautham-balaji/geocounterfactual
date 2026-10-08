@@ -17,7 +17,7 @@ import numpy as np
 from backend.critic import rules as R
 from backend.critic.physics_critic import (ALL_RULES,
                                            PhysicalPlausibilityCritic,
-                                           critic_off)
+                                           critic_off, critic_shadow)
 
 H = W = 96
 CELL = 10.0
@@ -259,6 +259,36 @@ def test_critic_integration():
     print(f"  R1 only     : violations={len(v_solo.violations)} "
           f"({solo.name})")
     assert len(v_solo.violations) == 1, "Rule isolation failed"
+
+    # Shadow mode: the measuring control arm. It must score exactly as the
+    # gating critic does -- same verdict, same violations, same score -- and
+    # differ ONLY in not sending the scene back. If it reported approved, the
+    # OFF arm of the ablation would show a 0% violation rate by construction.
+    gated = critic.evaluate_arrays(bad_rgb, bad_ndvi, rgb, ndvi, bad_slope,
+                                   mask, years=YEARS)
+    shadow = critic_shadow()
+    v_shadow = shadow.evaluate_arrays(bad_rgb, bad_ndvi, rgb, ndvi, bad_slope,
+                                      mask, years=YEARS)
+    print(f"  shadow      : approved={v_shadow.is_approved} "
+          f"gating={v_shadow.gating} violations={len(v_shadow.violations)} "
+          f"score={v_shadow.score:.1f}% ({shadow.name})")
+    assert not v_shadow.is_approved, "Shadow mode must keep the honest verdict"
+    assert not v_shadow.gating, "Shadow mode must not gate"
+    assert v_shadow.violations == gated.violations, \
+        "Shadow mode must record the same violations as the gating critic"
+    assert v_shadow.score == gated.score, "Shadow mode must score identically"
+    assert gated.gating, "The default critic must gate"
+
+    # Routing: a shadow rejection ends the run; a gated one loops back.
+    from backend.agents.workflow import check_critic_decision
+    rejected = {"is_approved": False, "iteration_count": 1}
+    assert check_critic_decision({**rejected, "critic_gating": True}) \
+        == "generator_node", "A gated rejection must return to the generator"
+    assert check_critic_decision({**rejected, "critic_gating": False}) \
+        == "approved_output", "A shadow rejection must not loop"
+    assert check_critic_decision(rejected) == "generator_node", \
+        "State without the flag must default to gating"
+    print("  routing     : gated -> generator_node, shadow -> approved_output")
 
 
 def run() -> int:

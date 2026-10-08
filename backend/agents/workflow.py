@@ -38,12 +38,15 @@ NODE_CRITIC = "critic"
 def check_critic_decision(state: GeoCounterfactualState) -> str:
     """Cyclic conditional edge (spec 3.3).
 
-    Three outcomes:
-      * approved            -> emit
+    Four outcomes:
+      * approved              -> emit
+      * shadow mode           -> emit; the verdict is recorded, not enforced
       * rejected, budget left -> back to the generator with a feedback mask
       * rejected, budget spent -> emit anyway, still flagged unapproved
     """
     if state.get("is_approved"):
+        return "approved_output"
+    if not state.get("critic_gating", True):
         return "approved_output"
     if int(state.get("iteration_count", 0)) >= settings.max_critic_iterations:
         logger.warning("Critic retry budget exhausted; releasing best effort.")

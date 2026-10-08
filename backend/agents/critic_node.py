@@ -118,6 +118,7 @@ def critic_node(state: GeoCounterfactualState) -> dict:
 
     violations = verdict["violations"]
     approved = bool(verdict["is_approved"])
+    gating = bool(verdict.get("gating", True))
     exhausted = iteration >= settings.max_critic_iterations
 
     entries = []
@@ -134,6 +135,15 @@ def critic_node(state: GeoCounterfactualState) -> dict:
         entries.append(
             ("success", f"Passed all checks with {verdict['score']:.0f}% "
                         f"plausibility score on iteration {iteration}."))
+    elif not gating:
+        # Shadow mode. Logged as warn, not reject: nothing was sent back, and
+        # the server counts "reject" entries as critic_rejections.
+        entries.append(
+            ("warn", f"Shadow mode: {len(violations)} violation(s) recorded at "
+                     f"{verdict['score']:.0f}% plausibility; not gating, "
+                     f"releasing scene unchanged."))
+        for v in violations:
+            entries.append(("warn", f"Recorded: {v}"))
     elif exhausted:
         # Spec 3.3: after max retries the best candidate is released rather
         # than looping forever, but it must be labelled honestly.
@@ -158,6 +168,7 @@ def critic_node(state: GeoCounterfactualState) -> dict:
     # critic-OFF experiment is supposed to measure.
     update = {
         "is_approved": approved,
+        "critic_gating": gating,
         "plausibility_score": float(verdict["score"]),
         "violations": violations,
         "critic_feedback_mask": verdict["feedback_mask"],
