@@ -18,13 +18,15 @@ from __future__ import annotations
 
 import base64
 import io
+import os
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 import torch
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from PIL import Image
 from pydantic import BaseModel
 
@@ -49,8 +51,17 @@ NEGATIVE_PROMPT = (
 FEEDBACK_NEGATIVE = ("water on steep terrain, reservoir on a ridge, "
                      "floating water, vegetation on bare rock")
 
+# Protocol 2 adds per-request use_lora and seed, for the ablation runner.
+# remote_client.py refuses a reply that does not echo adapter_active, so an
+# outdated server cannot silently run the adapter on a base-model request.
+PROTOCOL = 2
+
 app = FastAPI(title="GeoCounterfactual GPU Generator")
 _PIPE = None
+_LORA_LOADED = False
+# Adapter state lives on the shared pipeline, so two concurrent requests
+# could otherwise toggle it under each other mid-generation.
+_GEN_LOCK = threading.Lock()
 
 
 # --------------------------------------------------------------------------
@@ -73,6 +84,10 @@ class GenerateRequest(BaseModel):
     feedback_mask: Optional[ArrayPayload] = None
     baseline_ndvi: Optional[ArrayPayload] = None
     guidance: Dict[str, Any] = {}
+    # None: use the adapter if one is loaded. False: base model, for the
+    # ablation's base arms. True: require the adapter.
+    use_lora: Optional[bool] = None
+    seed: int = 42
 
 
 def decode(payload: Optional[ArrayPayload]) -> Optional[np.ndarray]:
@@ -96,7 +111,7 @@ def encode(array: Optional[np.ndarray]) -> Optional[Dict[str, Any]]:
 # --------------------------------------------------------------------------
 
 def get_pipeline():
-    global _PIPE
+    global _PIPE, _LORA_LOADED
     if _PIPE is not None:
         return _PIPE
 
@@ -120,7 +135,6 @@ def get_pipeline():
         safety_checker=None, requires_safety_checker=False)
     pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
 
-    import os
     if os.path.isfile(LORA_PATH):
         from safetensors.torch import load_file
         raw = load_file(LORA_PATH)
@@ -135,6 +149,7 @@ def get_pipeline():
             raise RuntimeError("LoRA loaded no adapters; refusing to run as "
                                "if fine-tuned.")
         pipe.set_adapters(active, adapter_weights=[LORA_SCALE])
+        _LORA_LOADED = True
         print("LoRA active:", active, "@", LORA_SCALE)
 
     pipe = pipe.to(device)
@@ -256,11 +271,39 @@ def health():
                 if torch.cuda.is_available() else None),
         "pipeline_loaded": _PIPE is not None,
         "torch": torch.__version__,
+        "protocol": PROTOCOL,
+        "lora_file_present": os.path.isfile(LORA_PATH),
+        # Only meaningful once the pipeline is loaded (first /generate).
+        "lora_loaded": _LORA_LOADED,
     }
 
 
 @app.post("/generate")
 def generate(req: GenerateRequest):
+    """Set the adapter state the request asked for, then synthesise.
+
+    Every reply echoes adapter_active, which remote_client.py verifies, so a
+    base-model request can never silently run the fine-tuned adapter.
+    """
+    with _GEN_LOCK:
+        pipe = get_pipeline()
+        want = _LORA_LOADED if req.use_lora is None else bool(req.use_lora)
+        if want and not _LORA_LOADED:
+            raise HTTPException(
+                409, f"use_lora=True but no adapter is loaded. Upload "
+                     f"geocf_lora.safetensors to {LORA_PATH} and restart.")
+        if _LORA_LOADED:
+            if want:
+                pipe.enable_lora()
+                pipe.set_adapters(["geocf"], adapter_weights=[LORA_SCALE])
+            else:
+                pipe.disable_lora()
+        body = _generate(req)
+        body.update(adapter_active=want, seed=req.seed, protocol=PROTOCOL)
+        return body
+
+
+def _generate(req: GenerateRequest) -> Dict[str, Any]:
     from skimage.feature import canny
 
     t_start = time.time()
@@ -293,7 +336,8 @@ def generate(req: GenerateRequest):
 
     pipe = get_pipeline()
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    generator = torch.Generator(device=device).manual_seed(42 + req.iteration)
+    generator = torch.Generator(device=device).manual_seed(
+        req.seed + req.iteration)
 
     t0 = time.time()
     # Structure only, not the riparian buffer: the adapter trained on masks
