@@ -15,7 +15,10 @@ import { MOCK_REGIONS } from '../data/mockData';
 // Override with VITE_API_BASE to point at a backend on another host.
 const API_BASE = import.meta.env?.VITE_API_BASE ?? '';
 
-const HEALTH_TIMEOUT_MS = 2500;
+// GEE in restricted mode answers the liveness probe in 1.5-3.4 s, so a
+// 2.5 s budget aborted the first poll on every page load and the UI fell
+// back to mock data against a backend that was up the whole time.
+const HEALTH_TIMEOUT_MS = 15000;
 const SIMULATE_TIMEOUT_MS = 15 * 60 * 1000; // a cold Colab T4 can take minutes
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
@@ -184,18 +187,74 @@ export async function simulateStreaming({ regionId, interventionText,
       }
     });
 
-    source.addEventListener('error', (evt) => {
-      // EventSource fires 'error' both for our named error event and for
-      // transport drops; either way stop and degrade rather than hang.
-      let message = 'stream error';
-      try {
-        if (evt?.data) message = JSON.parse(evt.data).message ?? message;
-      } catch { /* transport-level error carries no data */ }
-      console.warn('[GeoCounterfactual] Stream failed:', message);
-      finish({ ...buildMockResult(regionId, interventionText),
-               fallback_reason: message });
+    source.addEventListener('error', async (evt) => {
+      if (settled) return;
+      // Close first: EventSource otherwise auto-reconnects, the server
+      // refuses the replay with 409, and that 409 lands here a second time.
+      source.close();
+
+      // A named 'error' event carries data: the pipeline itself failed, so
+      // there is no result to recover.
+      if (evt?.data) {
+        let message = 'pipeline error';
+        try { message = JSON.parse(evt.data).message ?? message; } catch { /* keep default */ }
+        console.warn('[GeoCounterfactual] Pipeline failed:', message);
+        finish({ ...buildMockResult(regionId, interventionText),
+                 fallback_reason: message });
+        return;
+      }
+
+      // A transport drop carries no data. The graph keeps running in its
+      // server thread regardless, so a Wi-Fi blip during a multi-minute T4
+      // run must not discard a real result for mock numbers.
+      console.warn('[GeoCounterfactual] Stream dropped; recovering job', jobId);
+      const recovered = await recoverResult(jobId);
+      if (recovered.payload) {
+        finish({ ...recovered.payload, source: 'backend', recovered: true });
+      } else {
+        finish({ ...buildMockResult(regionId, interventionText),
+                 fallback_reason: `stream lost: ${recovered.reason}` });
+      }
     });
   });
+}
+
+const RECOVER_POLL_MS = 3000;
+const RECOVER_DEADLINE_MS = 5 * 60 * 1000;
+
+/**
+ * Poll /api/result for a job whose SSE stream dropped.
+ *
+ * Resolves {payload} when the job finishes, or {reason} when it failed,
+ * never started, or outlived the deadline. Never throws.
+ */
+async function recoverResult(jobId) {
+  const deadline = Date.now() + RECOVER_DEADLINE_MS;
+  let pendingPolls = 0;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/api/result/${jobId}`,
+        {}, 10000);
+      if (res.status === 404) return { reason: 'job no longer tracked' };
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        return { reason: body.detail || `backend returned ${res.status}` };
+      }
+      const body = await res.json();
+      // Unfinished jobs answer {status: "pending"|"running"}; a finished one
+      // is the full payload, which carries status "success" and a run_id.
+      if (body.status === 'success' || body.run_id) return { payload: body };
+      // "pending" means the worker never started -- the stream dropped
+      // before the graph launched, so waiting will not help.
+      if (body.status === 'pending' && ++pendingPolls >= 3) {
+        return { reason: 'job never started' };
+      }
+    } catch {
+      // Network still down; keep trying until the deadline.
+    }
+    await new Promise((r) => setTimeout(r, RECOVER_POLL_MS));
+  }
+  return { reason: 'recovery timed out' };
 }
 
 export async function fetchRegions() {

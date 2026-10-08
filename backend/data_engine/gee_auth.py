@@ -10,8 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import ee
 
@@ -22,6 +23,10 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 _initialized = False
 _init_error: Optional[str] = None
+
+# (monotonic timestamp, result) of the last liveness probe.
+_avail_cache: Optional[Tuple[float, bool]] = None
+AVAIL_TTL_S = 60.0
 
 
 class GEEAuthError(RuntimeError):
@@ -69,20 +74,30 @@ def initialize_gee(force: bool = False) -> None:
         logger.info("Earth Engine initialized for project %s", settings.gee_project_id)
 
 
-def is_available() -> bool:
+def is_available(max_age_s: float = AVAIL_TTL_S) -> bool:
     """True when Earth Engine can serve a request, without raising.
 
-    Used by the cache layer to decide between a live fetch and the synthetic
-    fallback, so it performs a real (tiny) round-trip rather than trusting that
-    initialization alone implies connectivity.
+    Performs a real (tiny) round-trip rather than trusting that
+    initialization alone implies connectivity -- but caches the answer.
+    /api/health calls this and the frontend polls every 20 s; uncached, each
+    poll was a live EE call taking 1.5-3.4 s against a project already in
+    restricted-quota mode, and the latency alone tripped the client's
+    health timeout. Pass max_age_s=0 to force a fresh probe.
     """
+    global _avail_cache
+    now = time.monotonic()
+    if _avail_cache is not None and now - _avail_cache[0] < max_age_s:
+        return _avail_cache[1]
+
     try:
         initialize_gee()
         ee.Number(1).getInfo()
-        return True
+        ok = True
     except Exception as exc:  # noqa: BLE001
         logger.warning("Earth Engine unavailable: %s", exc)
-        return False
+        ok = False
+    _avail_cache = (now, ok)
+    return ok
 
 
 def last_error() -> Optional[str]:

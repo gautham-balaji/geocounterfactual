@@ -52,6 +52,12 @@ class RemoteGeneratorError(RuntimeError):
     pass
 
 
+# ngrok free tier returns an HTML interstitial (ERR_NGROK_6024) to any
+# request it thinks came from a browser. requests would then receive HTML
+# where JSON was expected. This header opts out of the interstitial.
+NGROK_HEADERS = {"ngrok-skip-browser-warning": "true"}
+
+
 class RemoteGenerator(BaseGenerator):
     name = "remote"
 
@@ -70,7 +76,8 @@ class RemoteGenerator(BaseGenerator):
         return f"remote GPU at {self.url}"
 
     def health(self) -> Dict[str, Any]:
-        response = requests.get(f"{self.url}/health", timeout=30)
+        response = requests.get(f"{self.url}/health", timeout=30,
+                                headers=NGROK_HEADERS)
         response.raise_for_status()
         return response.json()
 
@@ -97,7 +104,8 @@ class RemoteGenerator(BaseGenerator):
             try:
                 started = time.time()
                 response = requests.post(f"{self.url}/generate", json=payload,
-                                         timeout=self.timeout_s)
+                                         timeout=self.timeout_s,
+                                         headers=NGROK_HEADERS)
                 response.raise_for_status()
                 body = response.json()
                 elapsed = time.time() - started

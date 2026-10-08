@@ -99,6 +99,18 @@ def _extract_json(text: str) -> Optional[dict]:
         return None
 
 
+# Errors meaning the service itself is down or saturated, as opposed to the
+# model rejecting our schema. Matched against the exception text because the
+# SDK wraps them in several different exception types.
+_UNAVAILABLE_MARKERS = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED",
+                        "DEADLINE_EXCEEDED", "Timeout", "timed out")
+
+
+def _service_unavailable(exc: Exception) -> bool:
+    text = f"{type(exc).__name__} {exc}"
+    return any(marker in text for marker in _UNAVAILABLE_MARKERS)
+
+
 def parse_intent_with_gemini(text: str, years: int,
                              attempts: int = 2) -> tuple:
     """Stage 1. Returns (plan_or_None, diagnostic).
@@ -107,6 +119,11 @@ def parse_intent_with_gemini(text: str, years: int,
     keyword heuristic would hide a transient 429/503 behind what looks like a
     deliberate offline run, and the planner would quietly get dumber without
     anyone noticing.
+
+    An availability error ends the stage at once. The retry loop and the
+    raw-JSON path exist for schema rejections; against an overloaded model
+    they only multiply the wait. Measured during a 503 storm: four calls of
+    ~12 s each held the planner for 51 s before the keyword fallback.
     """
     api_key = settings.gemini_api_key
     if not api_key:
@@ -122,6 +139,11 @@ def parse_intent_with_gemini(text: str, years: int,
             model=settings.gemini_model,
             google_api_key=api_key,
             temperature=0.0,   # deterministic: the ablation must be repeatable
+            # Bound each call. The SDK default is max_retries=6 with
+            # exponential backoff; one attempt is enough, since an outage is
+            # handled by falling back rather than by waiting it out.
+            timeout=20,
+            max_retries=1,
         )
 
         # Preferred path: schema-constrained structured output.
@@ -136,6 +158,8 @@ def parse_intent_with_gemini(text: str, years: int,
             last_error = f"{type(exc).__name__}: {str(exc)[:160]}"
             logger.warning("Gemini structured parse failed on attempt %d (%s)",
                            attempt, last_error)
+            if _service_unavailable(exc):
+                return None, last_error
 
         # Fallback path: some model/SDK pairs reject the schema; ask for raw
         # JSON before giving up on the LLM entirely.
@@ -153,6 +177,8 @@ def parse_intent_with_gemini(text: str, years: int,
             last_error = f"{type(exc).__name__}: {str(exc)[:160]}"
             logger.warning("Gemini raw-JSON parse failed on attempt %d (%s)",
                            attempt, last_error)
+            if _service_unavailable(exc):
+                return None, last_error
 
     return None, last_error
 
