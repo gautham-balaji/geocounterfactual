@@ -98,6 +98,9 @@ def input_handler_node(state: GeoCounterfactualState) -> dict:
         ("info", f"Baseline {vegetation} mean {ndvi_stats['mean']:+.3f}; "
                  f"slope {slope_stats['min']:.1f}-{slope_stats['max']:.1f} deg."),
     ]
+    if any(n.startswith("Loaded from disk cache") for n in scene.notes):
+        entries.append(("info", "Baseline served from the local scene cache "
+                                "(pre-baked; no Earth Engine call)."))
     if scene.source == "synthetic":
         entries.append(
             ("warn", "SYNTHETIC imagery in use - Earth Engine unavailable. "

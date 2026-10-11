@@ -418,10 +418,27 @@ Sentinel-2 true colour."*
 | Pairs | `python -m backend.experiments.extract_pairs --confidence accepted --min-area-ha 1.0 --patch-span-m 1280 --out-px 512 --seed 42` |
 | Region data check | `python -m backend.tests.test_phase1_live` |
 | Region catalogue | `python -m backend.tests.test_region_catalog` |
+| Baseline cache status | `python -m backend.scripts.prebake_ee_data --check` |
 
 Earth Engine project: `geocounterfactual-backend`. Every detection threshold
 is in `DetectionConfig`, every critic threshold in `backend/config.py`
 (`Settings`).
+
+**Earth Engine composites drift; archive the cache [M].** A median
+composite is recomputed from the current state of the collection every
+time it is requested, and the collection is reprocessed and re-scored for
+cloud over time. Re-fetching the Kadapa baseline on 2026-10-11, for the same
+window and parameters as the copy cached on 2026-09-13, changed:
+
+- 11–31% of pixels per reflectance band (99th percentile about 0.004
+  reflectance, maximum 0.018);
+- NDVI on 36% of pixels (99th percentile 0.010, maximum 0.048).
+
+Elevation and slope were bit-identical. All experiments read baselines from
+the local scene cache (`backend/data/cache/`, about 29 MB for the 15
+regions), so **results are reproducible only against that cache**. It
+should be archived with the published results, and the paper should state
+the fetch date, rather than invite readers to re-fetch from Earth Engine.
 
 ## References to cite (verify bibliographic details before submission)
 
