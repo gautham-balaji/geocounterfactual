@@ -1,0 +1,5 @@
+Arm,n,Violation % [95% CI],Score mean (SD),Score median,Iterations mean (median),Approved %,R1 fail %,R2 fail %,R3 fail %,R4 fail %
+"Base, shadow",30,"7 [2, 21]",99.4 (3.4),100.0,1.00 (1),93,0,7,3,0
+"Base, gating",30,"3 [1, 17]",99.6 (2.3),100.0,1.10 (1),97,0,0,3,0
+"LoRA, shadow",30,"13 [5, 30]",98.3 (5.5),100.0,1.00 (1),87,0,7,10,0
+"LoRA, gating",30,"3 [1, 17]",99.6 (2.4),100.0,1.17 (1),97,0,0,3,0
