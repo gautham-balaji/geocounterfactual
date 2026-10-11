@@ -523,9 +523,73 @@ def simulate_async(req: SimulateRequest) -> Dict[str, str]:
             "stream_url": f"/api/stream/{job_id}"}
 
 
+# The graph's fixed edges. The critic's outgoing edge is decided by
+# check_critic_decision -- the function the graph itself routes with -- so
+# what the interface calls "next" can never disagree with what runs.
+_NEXT_NODE = {"input_handler": "planner", "planner": "dynamics",
+              "dynamics": "generator", "generator": "critic"}
+
+
+def _progress(node_name: str, update: Dict[str, Any],
+              merged: Dict[str, Any]) -> Dict[str, Any]:
+    """What a node completion means for the live view.
+
+    `next` is the node now running (None at the end). `pass` is the
+    generate-and-judge pass in progress: a generator about to run opens a
+    new one, so the counter moves the moment the critic sends the scene
+    back, not when the next verdict lands. For the critic, `verdict` gives
+    the outcome in structured form, so the interface need not parse logs.
+    """
+    from backend.agents.workflow import check_critic_decision
+    from backend.critic.physics_critic import ALL_RULES
+
+    if node_name == "critic":
+        nxt = ("generator" if check_critic_decision(merged) == "generator_node"
+               else None)
+    else:
+        nxt = _NEXT_NODE.get(node_name)
+    done = int(merged.get("iteration_count", 0))   # generator passes finished
+    event: Dict[str, Any] = {
+        "next": nxt,
+        "pass": done + 1 if nxt == "generator" else done,
+        "max_iterations": settings.max_critic_iterations,
+    }
+
+    if node_name == "critic":
+        approved = bool(update.get("is_approved", False))
+        gating = bool(update.get("critic_gating", True))
+        history = update.get("rejection_history") or []
+        feedback = update.get("critic_feedback_mask")
+        if approved:
+            outcome = "approved"
+        elif not gating:
+            outcome = "recorded"       # shadow mode: judged, not enforced
+        elif nxt == "generator":
+            outcome = "retry"
+        else:
+            outcome = "exhausted"      # released, still unapproved
+        event["verdict"] = {
+            "iteration": done,
+            "outcome": outcome,
+            "approved": approved,
+            "score": round(float(update.get("plausibility_score", 0.0)), 1),
+            "violations": list(update.get("violations") or []),
+            "failed_rules": list(history[0].get("rule_ids", [])) if history
+            else [],
+            "evaluated_rules": list(merged.get("critic_rules") or ALL_RULES),
+            "feedback_px": (int(np.sum(np.asarray(feedback, dtype=bool)))
+                            if feedback is not None else 0),
+        }
+    return event
+
+
 @app.get("/api/stream/{job_id}")
 async def stream(job_id: str):
     """Server-sent events: one message per node completion, then the payload.
+
+    Events: `start` (the first node is running), `node` once per node
+    completion -- its new logs plus `next`, `pass` and, from the critic, a
+    structured `verdict` (see _progress) -- then `complete` or `error`.
 
     The graph is synchronous CPU/network work, so it runs in a worker thread
     and hands chunks back through an asyncio queue. Running it inline would
@@ -551,6 +615,15 @@ async def stream(job_id: str):
         merged: Dict[str, Any] = {}
         emitted = 0
         try:
+            # Announce the first node before it finishes: the input handler
+            # can take seconds on a cold cache, and the view should show it
+            # working rather than idle.
+            loop.call_soon_threadsafe(queue.put_nowait, {
+                "event": "start",
+                "data": json.dumps({
+                    "next": "input_handler", "pass": 0,
+                    "max_iterations": settings.max_critic_iterations}),
+            })
             for node_name, update in stream_simulation(
                     region_id=req.region_id,
                     intervention_text=req.intervention_text,
@@ -570,7 +643,9 @@ async def stream(job_id: str):
                 emitted = len(merged.get("execution_logs") or [])
                 loop.call_soon_threadsafe(queue.put_nowait, {
                     "event": "node",
-                    "data": json.dumps({"node": node_name, "logs": new_logs}),
+                    "data": json.dumps({"node": node_name, "logs": new_logs,
+                                        **_progress(node_name, update,
+                                                    merged)}),
                 })
 
             run_id = uuid.uuid4().hex[:12]

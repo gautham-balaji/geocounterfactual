@@ -90,7 +90,10 @@ export default function AgentTerminal({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-                className="relative flex gap-3 px-3.5 py-2.5"
+                // A rejection is the loop doing its job; tint the row so it
+                // holds the eye while the stream keeps scrolling past it.
+                className={cn('relative flex gap-3 px-3.5 py-2.5',
+                  log.type === 'reject' && 'bg-critical/5')}
               >
                 <span className={cn('absolute left-0 top-0 bottom-0 w-0.5',
                   tone.rule)} />

@@ -1,88 +1,123 @@
 import React from 'react';
-import { FileText, MapPin, Trees, Cpu, ShieldCheck, CornerUpLeft } from 'lucide-react';
+import { motion, useReducedMotion } from 'framer-motion';
+import { FileText, MapPin, Trees, Cpu, ShieldCheck, CornerUpLeft,
+         Check } from 'lucide-react';
+import { cn, Label, Badge } from './ui/primitives';
+import { PIPELINE_NODES } from '../services/pipelineState';
 
 /**
- * Compact vertical status rail for the Command Center side pane.
+ * The five agents and where the run is among them.
  *
- * A condensed stand-in for the full flowchart: five nodes, current state,
- * and the critic feedback edge lighting up when the loop actually fires.
- * Derived from the live logs rather than a playback timer.
+ * State comes from the server's own routing (see pipelineState.js): the
+ * highlighted node is the one RUNNING, not the one that last logged. The
+ * critic -> generator edge lights when a rejection actually sends the scene
+ * back, which is the moment the panel should be looking at.
  */
 
-const NODES = [
-  { id: 'node-1', agent: 'Input Handler', label: 'Input Handler', icon: FileText },
-  { id: 'node-2', agent: 'Intervention-Planner', label: 'Planner', icon: MapPin },
-  { id: 'node-3', agent: 'Eco-Hydrological Dynamics', label: 'Dynamics', icon: Trees },
-  { id: 'node-4', agent: 'Generator (Diffusion)', label: 'Generator', icon: Cpu },
-  { id: 'node-5', agent: 'Physical-Plausibility Critic', label: 'Critic', icon: ShieldCheck },
-];
+const ICONS = {
+  input_handler: FileText, planner: MapPin, dynamics: Trees,
+  generator: Cpu, critic: ShieldCheck,
+};
 
-export default function PipelineRail({ logs = [], isRunning = false,
-                                       iterations = 0 }) {
-  const seen = new Set(logs.map((l) => l.agent));
-  const last = logs[logs.length - 1];
-  const rejected = logs.some((l) => l.type === 'reject');
-  // Loop is "hot" while a rejection is the most recent verdict.
-  const loopActive = logs.slice(-3).some((l) => l.type === 'reject');
+function nodeState(id, pipeline, isRunning) {
+  if (isRunning && pipeline.active === id) return 'active';
+  if (pipeline.completed.includes(id)) return 'done';
+  return 'pending';
+}
+
+export default function PipelineRail({ pipeline, isRunning = false }) {
+  const reduce = useReducedMotion();
+  const { pass, maxIterations, verdicts } = pipeline;
+  const last = verdicts[verdicts.length - 1];
+  const looped = verdicts.some((v) => v.outcome === 'retry');
+  // Hot while the generator is redoing a pass the critic just rejected.
+  const loopFiring = isRunning && last?.outcome === 'retry'
+    && pipeline.active === 'generator';
 
   return (
-    <div className="glass-panel p-3 rounded-xl border border-slate-800">
-      <div className="flex items-center justify-between text-xs font-mono border-b border-slate-800 pb-2 mb-2">
-        <span className="text-cyan-400 font-bold">AGENT PIPELINE</span>
-        {iterations > 0 && (
-          <span className="text-slate-400">
-            iteration {iterations}
+    <div className="rounded-lg border border-line bg-surface-1 p-3.5 space-y-3">
+      <div className="flex items-center justify-between">
+        <Label>Agent pipeline</Label>
+        {pass > 0 && (
+          <span className="font-mono text-micro text-ink-secondary tabular-nums">
+            pass {pass}
+            <span className="text-ink-tertiary"> / {maxIterations}</span>
           </span>
         )}
       </div>
 
-      <div className="space-y-1">
-        {NODES.map((node, i) => {
-          const done = seen.has(node.agent);
-          const active = isRunning && last?.agent === node.agent;
-          const Icon = node.icon;
+      <ol className="space-y-1">
+        {PIPELINE_NODES.map((node, i) => {
+          const state = nodeState(node.id, pipeline, isRunning);
+          const Icon = ICONS[node.id];
+          // Only on the row doing the work: a finished critic labelled with
+          // the pass the generator is now redoing would claim a verdict it
+          // has not given yet.
+          const showPass = pass > 0 && state === 'active'
+            && (node.id === 'generator' || node.id === 'critic');
           return (
-            <div key={node.id}>
+            <li key={node.id}>
               <div
-                className={`flex items-center gap-2.5 px-2 py-1.5 rounded-lg border transition ${
-                  active
-                    ? 'bg-cyan-500/15 border-cyan-500/50'
-                    : done
-                    ? 'bg-darkbg-800/70 border-slate-800'
-                    : 'bg-transparent border-transparent opacity-45'
-                }`}
+                aria-current={state === 'active' ? 'step' : undefined}
+                className={cn(
+                  'relative flex items-center gap-2.5 rounded-md px-2.5 py-2',
+                  'border transition-colors duration-300',
+                  state === 'active' && 'border-accent/40 bg-accent-subtle',
+                  state === 'done' && 'border-line bg-surface-2/60',
+                  state === 'pending' && 'border-transparent opacity-50',
+                )}
               >
+                {state === 'active' && !reduce && (
+                  <motion.span
+                    className="absolute inset-0 rounded-md border border-accent/50"
+                    animate={{ opacity: [0.25, 0.9, 0.25] }}
+                    transition={{ duration: 1.6, repeat: Infinity,
+                                  ease: 'easeInOut' }}
+                  />
+                )}
                 <Icon
-                  className={`w-3.5 h-3.5 shrink-0 ${
-                    active ? 'text-cyan-300 animate-pulse'
-                           : done ? 'text-emerald-400' : 'text-slate-600'
-                  }`}
+                  className={cn('w-3.5 h-3.5 shrink-0',
+                    state === 'active' ? 'text-accent-soft'
+                      : state === 'done' ? 'text-ink-secondary'
+                        : 'text-ink-tertiary')}
+                  strokeWidth={1.75}
                 />
-                <span className={`text-[11px] font-mono flex-1 ${
-                  active ? 'text-cyan-200 font-semibold'
-                         : done ? 'text-slate-300' : 'text-slate-500'
-                }`}>
+                <span className={cn('text-label flex-1 min-w-0 truncate',
+                  state === 'pending' ? 'text-ink-tertiary' : 'text-ink-primary')}>
                   {node.label}
                 </span>
-                <span className={`w-1.5 h-1.5 rounded-full ${
-                  active ? 'bg-cyan-400 animate-ping-slow'
-                         : done ? 'bg-emerald-400' : 'bg-slate-700'
-                }`} />
+                {showPass && (
+                  <span className="font-mono text-micro text-ink-tertiary tabular-nums">
+                    #{pass}
+                  </span>
+                )}
+                {state === 'active' && (
+                  <Badge tone="accent">running</Badge>
+                )}
+                {state === 'done' && (
+                  <Check className="w-3.5 h-3.5 text-positive shrink-0"
+                         strokeWidth={2} />
+                )}
               </div>
 
-              {/* The critic -> generator feedback edge, between nodes 4 and 5 */}
-              {i === 3 && rejected && (
-                <div className={`flex items-center gap-1.5 pl-3 py-0.5 text-[10px] font-mono ${
-                  loopActive ? 'text-rose-300' : 'text-rose-400/50'
-                }`}>
-                  <CornerUpLeft className={`w-3 h-3 ${loopActive ? 'animate-pulse' : ''}`} />
-                  critic feedback loop
+              {/* The feedback edge, drawn between Generator and Critic. */}
+              {i === 3 && looped && (
+                <div className={cn(
+                  'flex items-center gap-1.5 pl-3 py-1 font-mono text-micro',
+                  loopFiring ? 'text-critical' : 'text-critical/50')}>
+                  <CornerUpLeft
+                    className={cn('w-3 h-3',
+                      loopFiring && !reduce && 'animate-pulse')}
+                    strokeWidth={2} />
+                  {loopFiring
+                    ? `rejected, regenerating (pass ${pass})`
+                    : 'critic feedback loop'}
                 </div>
               )}
-            </div>
+            </li>
           );
         })}
-      </div>
+      </ol>
     </div>
   );
 }

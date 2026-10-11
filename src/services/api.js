@@ -170,6 +170,18 @@ export async function simulateStreaming({ regionId, interventionText,
       resolve(payload);
     };
 
+    // `start` names the first node before it finishes; each `node` event
+    // carries its new logs plus `next` (the node now running), `pass` and,
+    // from the critic, a structured `verdict`. Both go through onNode so a
+    // consumer handles one event shape.
+    source.addEventListener('start', (evt) => {
+      try {
+        onNode({ node: null, logs: [], ...JSON.parse(evt.data) });
+      } catch (err) {
+        console.warn('[GeoCounterfactual] Bad start event:', err);
+      }
+    });
+
     source.addEventListener('node', (evt) => {
       try {
         onNode(JSON.parse(evt.data));

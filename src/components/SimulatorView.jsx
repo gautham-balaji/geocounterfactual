@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useReducer } from 'react';
 import { Sparkles, MapPin, Send, Cpu, CheckCircle2, AlertTriangle,
          FileText, Trees, ShieldCheck } from 'lucide-react';
 import { cn, Panel, Button, Badge, Label, Divider } from './ui/primitives';
@@ -11,6 +11,9 @@ import XAIOverlay, { XAIToolbar } from './XAIOverlay';
 import DiffCanvas from './DiffCanvas';
 import AgentTerminal from './AgentTerminal';
 import PipelineRail from './PipelineRail';
+import CriticVerdicts from './CriticVerdicts';
+import { pipelineReducer, IDLE_PIPELINE, PIPELINE_NODES }
+  from '../services/pipelineState';
 import RegionPicker from './RegionPicker';
 
 export default function SimulatorView({ activeRegionId, setActiveRegionId, onLogsChange }) {
@@ -20,7 +23,11 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
   const [activeLayer, setActiveLayer] = useState('optical');
 
   const [isSimulating, setIsSimulating] = useState(false);
-  const [simStep, setSimStep] = useState(0); // 0 = idle, 1..5 = steps, 6 = completed
+  const [simStep, setSimStep] = useState(0); // 6 once a run has completed
+  // Live run state folded from the stream: which node is running, which
+  // pass, and every critic verdict as it lands.
+  const [pipeline, dispatchPipeline] = useReducer(pipelineReducer,
+                                                  IDLE_PIPELINE);
   const [result, setResult] = useState(null);
   const [backend, setBackend] = useState({ online: false });
   const [logs, setLogs] = useState([]);
@@ -63,6 +70,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
     setLogs([]);
     setActiveOverlays(new Set());
     setSimStep(0);
+    dispatchPipeline({ type: 'reset' });
     onLogsChange?.([]);
   }, [activeRegionId]);
 
@@ -83,36 +91,32 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
     setInputText(preset.text);
   };
 
-  // Node completion order -> the 5-step progress bar.
-  const NODE_STEP = {
-    input_handler: 1, planner: 2, dynamics: 3, generator: 4, critic: 5,
-  };
-
   const handleRunSimulation = async () => {
     setIsSimulating(true);
-    setSimStep(1);
+    setSimStep(0);
     setResult(null);
     setLogs([]);
+    dispatchPipeline({ type: 'reset' });
     onLogsChange?.([]);
 
-    // The progress bar is now driven by real node completions rather than
-    // five hardcoded setTimeouts, so it tracks the pipeline -- including the
-    // critic sending the generator back around.
+    // Every stream event updates the run state: the server names the node
+    // now running and the pass in progress, and the critic's verdicts
+    // arrive as they are given rather than in the final payload.
     const collected = [];
     const payload = await simulateStreaming({
       regionId: selectedRegion.id,
       interventionText: inputText,
       targetYears: 5,
-      onNode: ({ node, logs }) => {
-        if (logs?.length) {
-          collected.push(...logs);
+      onNode: (event) => {
+        if (event.logs?.length) {
+          collected.push(...event.logs);
           setLogs([...collected]);
           onLogsChange?.([...collected]);
         }
-        const step = NODE_STEP[node];
-        if (step) setSimStep(step);
+        dispatchPipeline({ type: 'event', event });
       },
     });
+    dispatchPipeline({ type: 'finish' });
 
     setResult(payload);
     if (payload.execution_logs?.length) {
@@ -296,45 +300,54 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
               )}
             </Button>
 
-            {/* Pipeline Execution HUD Step Progress */}
-            {isSimulating && (
-              <div className="p-4 rounded-lg bg-surface-2 border border-line space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label>Pipeline</Label>
-                  <span className="font-mono text-micro text-ink-secondary">{simStep} / 5</span>
-                </div>
-                <div className="w-full bg-surface-3 h-1 rounded-full overflow-hidden">
-                  <div
-                    className="bg-gradient-to-r from-emerald-400 to-cyan-400 h-full transition-all duration-500"
-                    style={{ width: `${(simStep / 5) * 100}%` }}
-                  />
-                </div>
-                <div className="text-label text-ink-secondary">
-                {(() => {
-                  const STEP_STATUS = [
-                    null,
-                    [FileText, 'Input Handler', 'Ingesting Sentinel-2 bands and DEM'],
-                    [MapPin, 'Intervention Planner', 'Routing drainage, siting structures'],
-                    [Trees, 'Eco-Hydrological Dynamics', 'Computing the 5-year growth envelope'],
-                    [Cpu, 'Generator', 'Synthesizing the counterfactual scene'],
-                    [ShieldCheck, 'Physical-Plausibility Critic', 'Evaluating slope and DEM constraints'],
-                  ];
-                  const entry = STEP_STATUS[simStep];
-                  if (!entry) return null;
-                  const [Icon, agent, detail] = entry;
-                  return (
-                    <span className="flex items-center gap-2 min-w-0">
-                      <Icon className="w-3.5 h-3.5 text-accent-soft shrink-0" strokeWidth={1.75} />
-                      <span className="truncate">
-                        <span className="text-ink-primary">{agent}</span>
-                        <span className="text-ink-tertiary">{detail}</span>
+            {/* Live pipeline strip: the node RUNNING now (named by the
+                server's routing, not inferred from the last log line), one
+                segment per agent, and the critic pass in progress. */}
+            {isSimulating && (() => {
+              const node = PIPELINE_NODES.find((n) => n.id === pipeline.active);
+              const NODE_ICON = { input_handler: FileText, planner: MapPin,
+                                  dynamics: Trees, generator: Cpu,
+                                  critic: ShieldCheck };
+              const Icon = node ? NODE_ICON[node.id] : null;
+              return (
+                <div className="p-4 rounded-lg bg-surface-2 border border-line space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Pipeline</Label>
+                    {pipeline.pass > 0 && (
+                      <span className="font-mono text-micro text-ink-secondary tabular-nums">
+                        pass {pipeline.pass} / {pipeline.maxIterations}
                       </span>
-                    </span>
-                  );
-                })()}
+                    )}
+                  </div>
+                  <div className="grid grid-cols-5 gap-1" aria-hidden="true">
+                    {PIPELINE_NODES.map((n) => (
+                      <div
+                        key={n.id}
+                        className={cn(
+                          'h-1 rounded-full transition-colors duration-500',
+                          n.id === pipeline.active
+                            ? 'bg-accent motion-safe:animate-pulse'
+                            : pipeline.completed.includes(n.id)
+                              ? 'bg-positive/70' : 'bg-surface-3')}
+                      />
+                    ))}
+                  </div>
+                  <div className="text-label min-h-[1.25rem]">
+                    {node ? (
+                      <span className="flex items-center gap-2 min-w-0">
+                        <Icon className="w-3.5 h-3.5 text-accent-soft shrink-0" strokeWidth={1.75} />
+                        <span className="truncate">
+                          <span className="text-ink-primary">{node.agent}</span>
+                          <span className="text-ink-tertiary"> · {node.doing}</span>
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-ink-tertiary">Starting</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
 
@@ -385,10 +398,11 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
               are visible in one glance instead of on separate tabs. */}
           <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
             <div className="xl:col-span-2 space-y-4">
-              <PipelineRail
-                logs={logs}
+              <PipelineRail pipeline={pipeline} isRunning={isSimulating} />
+              <CriticVerdicts
+                verdicts={pipeline.verdicts}
                 isRunning={isSimulating}
-                iterations={result?.critic_iterations ?? 0}
+                replay={pipeline.replay}
               />
             </div>
             <div className="xl:col-span-3">
