@@ -116,6 +116,10 @@ def input_handler_node(state: GeoCounterfactualState) -> dict:
 
     return {
         "region_id": region_id,
+        # Re-emitted, not just left in the seed state: the streaming
+        # endpoint builds its payload from node updates alone, and without
+        # this a streamed run on an upload reported scene.upload_id = null.
+        "upload_id": state.get("upload_id"),
         "bbox": list(bbox),
         "baseline_optical_rgb": scene.rgb,
         "baseline_nir": scene.bands.get("B8"),

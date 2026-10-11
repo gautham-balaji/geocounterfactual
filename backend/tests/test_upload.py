@@ -139,6 +139,10 @@ def test_rgb_png_degrades_honestly():
     assert "B8" not in up.bands
 
     state = initial_state("upload", [], INTERVENTION, 5, upload_id=upload_id)
+    # The streaming endpoint builds its payload from node updates only, so
+    # the upload's id must be in one or the streamed scene block reports
+    # upload_id = null.
+    assert input_handler_node(state)["upload_id"] == upload_id
     for node in (input_handler_node, planner_node, dynamics_node):
         state.update(node(state))
     assert state["spectral_mode"] == "rgb"
