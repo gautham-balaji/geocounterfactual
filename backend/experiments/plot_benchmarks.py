@@ -226,6 +226,7 @@ def figure_violation_rates(summary, out: Path, formats, dpi, stub) -> List[Path]
     fig, ax = plt.subplots(figsize=(DOUBLE_COLUMN_IN, 2.6))
     # Separate the headline group from the per-rule breakdown.
     x = np.array([0.0] + [1.35 + i for i in range(len(RULES))])
+    top = 0.0                                # highest interval end, in %
 
     for i, s in enumerate(summary):
         xs = x - 0.4 + step * (i + 0.5)
@@ -233,6 +234,7 @@ def figure_violation_rates(summary, out: Path, formats, dpi, stub) -> List[Path]
         p = np.array([v[0] for v in stats]) * 100
         lo = np.array([v[1] for v in stats]) * 100
         hi = np.array([v[2] for v in stats]) * 100
+        top = max(top, float(np.nanmax(hi)))
         ax.bar(xs, p, width=width, **_bar_style(s["arm"]), zorder=2)
         ax.errorbar(xs, p, yerr=[p - lo, hi - p], fmt="none",
                     ecolor=INK_2, elinewidth=0.6, capsize=1.6,
@@ -245,8 +247,13 @@ def figure_violation_rates(summary, out: Path, formats, dpi, stub) -> List[Path]
     ax.axvline(0.675, color=GRID, linewidth=0.6, zorder=1)
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
-    ax.set_ylim(0, 104)
-    ax.set_yticks(range(0, 101, 20))
+    # Bars start at zero, but the top follows the data: on a fixed 0-100
+    # axis, rates of a few percent sit in the bottom fifth of the plot and
+    # the differences the figure exists to show are unreadable. Round the
+    # highest interval end up to the next 10.
+    ymax = min(100, max(10, int(np.ceil((top + 2) / 10.0)) * 10))
+    ax.set_ylim(0, ymax * 1.04)
+    ax.set_yticks(range(0, ymax + 1, 10 if ymax <= 50 else 20))
     ax.set_ylabel("Runs with violation on the released scene (%)")
     ax.set_xlim(-0.5, x[-1] + 0.5)
     _ygrid(ax)
