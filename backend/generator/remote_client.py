@@ -90,8 +90,11 @@ NGROK_HEADERS = {"ngrok-skip-browser-warning": "true"}
 # colab_server.py protocol the ablation needs. Protocol 2 added use_lora and
 # seed; an older server silently ignores both -- pydantic drops unknown keys
 # -- so a "base" request would quietly run the fine-tuned adapter. Protocol
-# 3 added /warmup and reports load failures instead of a bare 500.
-ABLATION_PROTOCOL = 3
+# 3 added /warmup and reports load failures instead of a bare 500. Protocol
+# 4 decodes each generation window with the bounds it was encoded with; an
+# older server distorts every generated pixel, so its results are not
+# comparable and it is refused.
+ABLATION_PROTOCOL = 4
 
 
 class RemoteGenerator(BaseGenerator):

@@ -15,61 +15,6 @@ Provenance tags (as in `data_methodology.md`):
 Paths are relative to the repository root. Figures were verified on
 2026-10-11.
 
-**Read §0 first.** It is a defect that affects reported results, not a
-limitation to disclose.
-
----
-
-## 0. Known defect: radiometric stretch mismatch in generation (unfixed at time of writing)
-
-**What happens [M; `backend/generator/colab_server.py`,
-`backend/generator/diffusion_local.py`].** Each 1,280 m window is converted
-from reflectance to 8-bit for the diffusion model, then converted back, and
-the two conversions use different bounds:
-
-| Direction | Code | Bounds used |
-|---|---|---|
-| Reflectance → 8-bit | `to_uint8(win_rgb)`; local `_run_pipe` | The window's **own** 2nd–98th percentiles |
-| 8-bit → reflectance | `from_uint8(native, lo, hi)` | The **whole scene's** percentiles |
-
-The code comment beside it states the intent: scene-wide bounds, so patches
-do not tone-shift. Only the inverse follows that intent. A pixel the model
-reproduced *exactly* therefore returns with a per-band affine distortion:
-
-    x' = lo_scene + (x − lo_window) · (hi_scene − lo_scene) / (hi_window − lo_window)
-
-**Size [M].** This was measured on the 21 generation windows that the
-planner sites across the 15 regions (keyword planner, "3 series check
-dams"), for **unchanged** pixels inside the editable core:
-
-| Quantity | Median per window | Maximum | Windows past a critic threshold |
-|---|---|---|---|
-| Reflectance error | 0.005 (5.3% relative) | 0.060 (72.7%) | — |
-| Visible greenness (G − R)/(G + R) shift | 0.013 | 0.291 (Kurnool) | **10 / 21** above R3's 0.015 greening threshold |
-| Blue share B/(R + G + B) shift | 0.008 | 0.122 (Tikamgarh) | 7 / 21 above R1's 0.01 visible-mode margin |
-
-**Consequences.**
-
-- **Only generated pixels are affected.** Pixels outside the editable mask
-  are composited from the baseline and are untouched (§1).
-- **The critic's spectral rules are affected.** R2 and R3 judge generated
-  pixels through colour ratios and an NDVI fitted from RGB (§2). Both
-  partly reflect this encoding error rather than the model's output: R3 can
-  fire on a pixel the model reproduced faithfully, or miss real paint the
-  distortion offsets. R1 in NIR mode uses NDWI with inferred NIR and is
-  affected through the same fitted NDVI.
-- **The ablation's arm differences are not confounded.** All four arms ran
-  on the same backend and code, so the error is common to every arm.
-  **Absolute** violation rates, and the work the gating arms do, are
-  biased.
-
-**Required before the paper reports critic results.** Use the scene-wide
-bounds in both directions (one line in each backend). Add a regression test
-that an identity pass through window encoding and decoding returns the
-input. Re-run the ablation. Results produced before the fix must not be
-reported as final; if they are reported at all, they need this paragraph
-alongside.
-
 ---
 
 ## 1. Rule R4 cannot fail on the diffusion backends (composite masking)
@@ -173,7 +118,7 @@ test exists to examine.
 | Stage | Training (`notebooks/geocf_lora_finetune.ipynb`, `extract_pairs.py`) | Inference (`diffusion_local.py`, `colab_server.py`) |
 |---|---|---|
 | Source | Sentinel-2, 10 m; window ≈ 129–130 px for 1,280 m | Same, 128 px window |
-| To model resolution | Percentile-stretched to 8-bit, **Lanczos** to 512 px | Percentile-stretched (§0), **bilinear** to 512 px |
+| To model resolution | Percentile-stretched to 8-bit, **Lanczos** to 512 px | Same per-window 2–98% stretch, decoded with the same bounds; **bilinear** to 512 px |
 | ControlNet hint | — | Canny on the **native 128 px** conditioning luminance, **nearest-neighbour** to 512 px |
 | Back to the scene | — | Output **bilinear** to 128 px, composited at 10 m |
 

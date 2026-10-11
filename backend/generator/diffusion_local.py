@@ -179,7 +179,15 @@ class LocalDiffusionGenerator(BaseGenerator):
 
     @staticmethod
     def _to_uint8(rgb: np.ndarray) -> Tuple[Image.Image, np.ndarray, np.ndarray]:
-        """Reflectance -> 8-bit sRGB, returning the stretch bounds to invert."""
+        """Reflectance -> 8-bit sRGB, returning the stretch bounds to invert.
+
+        The returned bounds are the ONLY correct ones to pass to _from_uint8
+        for this image. Decoding with any other bounds applies a per-band
+        affine distortion even to pixels the model reproduced exactly.
+
+        Rounded, not truncated: truncation biases every pixel down by half a
+        quantisation step on average and doubles the worst-case error.
+        """
         lo = np.zeros(3, dtype=np.float32)
         hi = np.ones(3, dtype=np.float32)
         out = np.zeros(rgb.shape, dtype=np.float32)
@@ -191,7 +199,7 @@ class LocalDiffusionGenerator(BaseGenerator):
             if hi[c] - lo[c] < 1e-9:
                 hi[c] = lo[c] + 1e-6
             out[:, :, c] = np.clip((band - lo[c]) / (hi[c] - lo[c]), 0, 1)
-        return Image.fromarray((out * 255).astype(np.uint8)), lo, hi
+        return Image.fromarray(np.rint(out * 255).astype(np.uint8)), lo, hi
 
     @staticmethod
     def _from_uint8(img: Image.Image, lo: np.ndarray,
@@ -387,12 +395,22 @@ class LocalDiffusionGenerator(BaseGenerator):
 
         return windows
 
-    def _run_pipe(self, base_rgb, editable, cond, request, negative, lo, hi):
-        """One inpainting pass over an arbitrary array, returning reflectance."""
+    def _run_pipe(self, base_rgb, editable, cond, request, negative):
+        """One inpainting pass over an arbitrary array, returning reflectance.
+
+        The window is stretched by its OWN 2-98 percentiles and decoded with
+        the same bounds. Per-window is what the adapter was trained on --
+        extract_pairs rendered every 1280 m training patch with its own
+        stretch (raster_io.render_rgb) -- and matching the bounds makes the
+        round trip exact. Decoding with the scene's bounds instead, as this
+        once did, distorted even pixels the model reproduced unchanged: a
+        median 5.3% reflectance error, enough on its own to cross rule 3's
+        greening threshold in 10 of 21 windows.
+        """
         import torch
 
         out_px = settings.generation_patch_px
-        img_u8, _, _ = self._to_uint8(base_rgb)
+        img_u8, win_lo, win_hi = self._to_uint8(base_rgb)
         base_img = img_u8.resize((out_px, out_px), Image.BILINEAR)
         mask_img = Image.fromarray((editable * 255).astype(np.uint8)).resize(
             (out_px, out_px), Image.NEAREST)
@@ -418,12 +436,11 @@ class LocalDiffusionGenerator(BaseGenerator):
             generator=generator,
         ).images[0]
 
-        # Back to the window's native pixel grid, then to reflectance using
-        # the stretch bounds of the FULL scene, not this window: per-window
-        # bounds would make each patch tone-shift against its surroundings.
+        # Back to the window's native pixel grid, then to reflectance with the
+        # bounds this window was encoded with.
         native = result.resize((base_rgb.shape[1], base_rgb.shape[0]),
                                Image.BILINEAR)
-        return self._from_uint8(native, lo, hi)
+        return self._from_uint8(native, win_lo, win_hi)
 
     # -- generate ----------------------------------------------------------
 
@@ -518,7 +535,7 @@ class LocalDiffusionGenerator(BaseGenerator):
                     continue
                 patch = self._run_pipe(
                     base_rgb[r0:r1, c0:c1], win_mask,
-                    cond_full[r0:r1, c0:c1], request, negative, lo, hi)
+                    cond_full[r0:r1, c0:c1], request, negative)
                 # Composite only inside the editable region of this window,
                 # so neighbouring windows cannot overwrite each other's
                 # untouched context and leave visible seams.

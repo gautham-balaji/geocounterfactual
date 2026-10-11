@@ -57,7 +57,9 @@ FEEDBACK_NEGATIVE = ("water on steep terrain, reservoir on a ridge, "
 # outdated server cannot silently run the adapter on a base-model request.
 # Protocol 3 adds POST /warmup and reports why the pipeline failed to load,
 # in /health and in every 500, instead of a bare "Internal Server Error".
-PROTOCOL = 3
+# Protocol 4 decodes each window with the stretch bounds it was encoded
+# with; <= 3 used the scene's, distorting every generated pixel.
+PROTOCOL = 4
 
 app = FastAPI(title="GeoCounterfactual GPU Generator")
 _PIPE = None
@@ -219,6 +221,11 @@ def round8(n: int) -> int:
 
 
 def to_uint8(rgb: np.ndarray):
+    """Reflectance -> 8-bit, returning the bounds that alone invert it.
+
+    Rounded, not truncated, which halves the worst-case quantisation error
+    and removes truncation's half-step downward bias.
+    """
     lo = np.zeros(3, dtype=np.float32)
     hi = np.ones(3, dtype=np.float32)
     out = np.zeros(rgb.shape, dtype=np.float32)
@@ -230,7 +237,7 @@ def to_uint8(rgb: np.ndarray):
         if hi[c] - lo[c] < 1e-9:
             hi[c] = lo[c] + 1e-6
         out[:, :, c] = np.clip((band - lo[c]) / (hi[c] - lo[c]), 0, 1)
-    return Image.fromarray((out * 255).astype(np.uint8)), lo, hi
+    return Image.fromarray(np.rint(out * 255).astype(np.uint8)), lo, hi
 
 
 def from_uint8(img: Image.Image, lo: np.ndarray, hi: np.ndarray) -> np.ndarray:
@@ -385,8 +392,6 @@ def _generate(req: GenerateRequest) -> Dict[str, Any]:
                 "notes": ["Editable region empty; baseline returned."],
                 "device": "cuda" if torch.cuda.is_available() else "cpu"}
 
-    _, lo, hi = to_uint8(base_rgb)
-
     negative = NEGATIVE_PROMPT
     if feedback is not None and np.any(feedback):
         negative = f"{NEGATIVE_PROMPT}, {FEEDBACK_NEGATIVE}"
@@ -413,7 +418,10 @@ def _generate(req: GenerateRequest) -> Dict[str, Any]:
         if not win_mask.any():
             continue
         win_rgb = base_rgb[r0:r1, c0:c1]
-        wi, _, _ = to_uint8(win_rgb)
+        # Stretched by the window's own 2-98 percentiles, as every training
+        # patch was (raster_io.render_rgb in extract_pairs), and decoded below
+        # with those same bounds, so the round trip is exact.
+        wi, win_lo, win_hi = to_uint8(win_rgb)
         wi = wi.resize((PATCH_PX, PATCH_PX), Image.BILINEAR)
         wm = Image.fromarray((win_mask * 255).astype(np.uint8)).resize(
             (PATCH_PX, PATCH_PX), Image.NEAREST)
@@ -427,10 +435,12 @@ def _generate(req: GenerateRequest) -> Dict[str, Any]:
                    num_inference_steps=20, guidance_scale=7.5,
                    controlnet_conditioning_scale=0.8, strength=0.85,
                    height=PATCH_PX, width=PATCH_PX, generator=generator)
-        # Scene-wide stretch bounds, not per-window: per-window bounds make
-        # each patch tone-shift against its surroundings.
+        # Decode with the bounds this window was ENCODED with. Decoding with
+        # the scene's bounds, as protocol <= 3 did, distorted even pixels the
+        # model reproduced unchanged: a median 5.3% reflectance error, enough
+        # alone to cross rule 3's greening threshold in 10 of 21 windows.
         native = out.images[0].resize((c1 - c0, r1 - r0), Image.BILINEAR)
-        patch = from_uint8(native, lo, hi)
+        patch = from_uint8(native, win_lo, win_hi)
         sel = win_mask.astype(bool)
         for c in range(3):
             generated[r0:r1, c0:c1, c][sel] = patch[:, :, c][sel]

@@ -300,9 +300,15 @@ therefore works per window [M; `backend/generator/diffusion_local.py`,
    - 20 steps, UniPC multistep scheduler
    - guidance 7.5, strength 0.85, ControlNet scale 0.8
    - seed = run seed + iteration
-3. Results are resampled back to the native 10 m grid and composited **only
-   inside the window's editable pixels**, using stretch bounds from the
-   whole scene, so patches do not tone-shift against their surroundings.
+3. Each window is converted to 8-bit by its **own** 2nd–98th percentile
+   stretch, as every training patch was, and the output is converted back
+   to reflectance with **the same** bounds. A pixel the model reproduces
+   unchanged therefore returns within half a quantisation step: at most
+   0.00055 reflectance across all 21 windows the planner sites in the 15
+   regions [M; `backend/tests/test_generation_roundtrip.py`].
+4. Results are resampled back to the native 10 m grid and composited **only
+   inside the window's editable pixels**. Pixels outside them are the
+   baseline, bit for bit.
 
 **Inpaint the structure, not the buffer [P; recorded in
 `diffusion_local.py`].** The planner's change mask is the impoundment *plus*

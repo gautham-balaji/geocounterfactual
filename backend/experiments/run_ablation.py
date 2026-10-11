@@ -175,7 +175,10 @@ def preflight(backend: str, variants: List[str]) -> None:
                    "the adapter" if protocol < 2 else
                    "it has no /warmup and hides load failures behind a bare "
                    "500, which is how a missing peft aborted runs as an "
-                   "unexplained stub fallback")
+                   "unexplained stub fallback" if protocol < 3 else
+                   "it decodes each generation window with the scene's "
+                   "stretch bounds instead of the window's own, distorting "
+                   "every generated pixel; its results are not comparable")
             sys.exit(f"Colab server speaks protocol {protocol}; the ablation "
                      f"needs {ABLATION_PROTOCOL} ({why}). Re-upload "
                      f"backend/generator/colab_server.py, run "
