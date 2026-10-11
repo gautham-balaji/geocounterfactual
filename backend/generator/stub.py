@@ -110,20 +110,45 @@ class StubGenerator(BaseGenerator):
                                   np.clip(headroom / 0.35, 0.0, 1.0))
 
         greening[water] = 0.0
+        # Rejected pixels are left alone on regeneration, whichever rule
+        # rejected them -- as the diffusion backends do by removing them from
+        # the editable region. Retracting only water let a pixel rejected for
+        # its spectrum be repainted identically on every pass.
+        if self._retracted is not None:
+            greening[self._retracted] = 0.0
+        base_rgb = rgb.copy()
         for c, value in enumerate(VEG_RGB):
             rgb[:, :, c] = rgb[:, :, c] * (1 - greening) + value * greening
 
         rgb = np.clip(rgb, 0.0, 1.0)
 
-        # NDVI implied by the synthesized bands, clamped to the ceiling so the
-        # stub never violates rule 2 (we want rule 1 exercised in isolation).
+        # NDVI anchored to the measured baseline: baseline + (proxy(new) -
+        # proxy(old)). Re-deriving NDVI from scratch with the crude proxy
+        # below ignores what was measured: on dense riparian canopy it came
+        # out BELOW the true baseline, so a pixel the stub greened reported
+        # falling NDVI -- visible greening without an NIR response, which
+        # rule 3 rightly rejects and the loop could never clear. The
+        # diffusion backend was anchored the same way for the same reason.
+        # Clamped to the ceiling so the stub never violates rule 2 (we want
+        # rule 1 exercised in isolation).
         ceiling = guidance.get("ndvi_ceiling")
-        nir = np.clip(rgb[:, :, 1] * 2.4 + greening * 0.25, 0.0, 1.0)
-        red = rgb[:, :, 0]
-        denom = nir + red
-        ndvi = np.zeros_like(red)
-        valid = denom > 1e-6
-        ndvi[valid] = (nir[valid] - red[valid]) / denom[valid]
+
+        def proxy_ndvi(bands: np.ndarray, boost: np.ndarray) -> np.ndarray:
+            nir = np.clip(bands[:, :, 1] * 2.4 + boost * 0.25, 0.0, 1.0)
+            red = bands[:, :, 0]
+            denom = nir + red
+            out = np.zeros_like(red)
+            valid = denom > 1e-6
+            out[valid] = (nir[valid] - red[valid]) / denom[valid]
+            return out
+
+        if baseline_ndvi is not None:
+            ndvi = (np.asarray(baseline_ndvi, dtype=np.float32)
+                    + proxy_ndvi(rgb, greening)
+                    - proxy_ndvi(base_rgb, np.zeros_like(greening)))
+            ndvi = np.clip(ndvi, -1.0, 1.0)
+        else:
+            ndvi = proxy_ndvi(rgb, greening)
         ndvi[water] = -0.25
         if ceiling is not None:
             ndvi = np.minimum(ndvi, np.asarray(ceiling, dtype=np.float32))

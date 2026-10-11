@@ -21,9 +21,19 @@ import numpy as np
 from scipy import ndimage
 from skimage.metrics import structural_similarity as ssim
 
-# One Sentinel-2 cell is 100 m^2, so the spec's 500 m^2 minimum water body is
-# 5 cells. Anything smaller is speckle, not a reservoir.
+from backend.data_engine.indices import visible_water
+
+# The spec's minimum water body. Anything smaller is speckle, not a
+# reservoir. Defined as an area so it holds at any cell size; rule 1
+# converts it with its own cell_size_m.
+MIN_WATER_BODY_M2 = 500.0
+# The same floor in Sentinel-2 cells (100 m^2 each), the default patch size
+# for rule 3.
 MIN_WATER_BODY_CELLS = 5
+
+
+def min_cells(area_m2: float, cell_size_m: float) -> int:
+    return max(1, int(np.ceil(area_m2 / (cell_size_m ** 2))))
 
 # 8-connectivity: the channels here run diagonally, and a 4-neighbourhood
 # would fragment a diagonal pool into unconnected single pixels.
@@ -43,6 +53,23 @@ class RuleResult:
 
 def _empty(shape) -> np.ndarray:
     return np.zeros(shape, dtype=bool)
+
+
+# Minimum rise in blue share for a visible-only pixel to count as water the
+# generator introduced. Pure darkening leaves the share unchanged up to float
+# rounding (~1e-8); painting water over soil raises it by ~0.1-0.2. 0.01 sits
+# well clear of both.
+MIN_BLUE_SHIFT = 0.01
+
+
+def _blue_share(rgb: np.ndarray) -> np.ndarray:
+    """Blue chromaticity B / (R + G + B): colour independent of brightness."""
+    rgb = np.asarray(rgb, dtype=np.float32)
+    total = rgb.sum(axis=-1)
+    out = np.zeros(total.shape, dtype=np.float32)
+    valid = total > 1e-6
+    out[valid] = rgb[..., 2][valid] / total[valid]
+    return out
 
 
 def infer_nir(red: np.ndarray, ndvi: np.ndarray) -> np.ndarray:
@@ -68,9 +95,13 @@ def compute_ndwi(green: np.ndarray, nir: np.ndarray) -> np.ndarray:
     return np.clip(out, -1.0, 1.0)
 
 
-def detect_water(rgb: np.ndarray, ndvi: np.ndarray,
+def detect_water(rgb: np.ndarray, ndvi: Optional[np.ndarray],
                  ndwi_threshold: float = 0.0) -> np.ndarray:
     """Open-water mask. Shared by rules 1 and 3 so they cannot disagree.
+
+    ndvi=None marks a scene with no NIR band (an RGB upload). There is then
+    no NDWI to compute, and inferring NIR from a visible-band proxy would
+    fabricate it, so the visible-only classifier is used instead.
 
     NDWI alone is not sufficient when NIR is inferred from NDVI. Vegetation
     whose NDVI has been held down by the growth ceiling yields a low inferred
@@ -84,6 +115,8 @@ def detect_water(rgb: np.ndarray, ndvi: np.ndarray,
     of how NDVI was clamped.
     """
     rgb = np.asarray(rgb, dtype=np.float32)
+    if ndvi is None:
+        return visible_water(rgb)
     red, green, blue = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
     nir = infer_nir(red, ndvi)
     return (compute_ndwi(green, nir) > ndwi_threshold) & (blue >= green)
@@ -100,24 +133,53 @@ def rule_gravity_slope(
     max_slope_deg: float = 2.5,
     cell_size_m: float = 10.0,
     ndwi_threshold: float = 0.0,
+    baseline_rgb: Optional[np.ndarray] = None,
+    baseline_ndvi: Optional[np.ndarray] = None,
 ) -> RuleResult:
     """Surface water bodies >= 500 m^2 cannot rest on slopes > max_slope_deg.
 
     Water is detected by NDWI rather than the spec's green-vs-blue reflectance
     ratio, which also fires on bright rooftops, dry salt pans and haze.
+
+    Given a baseline, only water the candidate INTRODUCED is judged. Water
+    already present in the observed scene is a fact about the world, not a
+    claim by the generator; where it meets "steep" ground it is the 30 m DEM
+    smoothing a reservoir's edge or, in a visible-only scene, terrain shadow.
+    Judging it would raise violations on pixels the generator never touched,
+    which regeneration cannot clear -- the loop would spend its whole retry
+    budget on them, as it did when the NDVI ceiling sat below existing
+    canopy. Without a baseline every detected water pixel is judged.
     """
     shape = candidate_rgb.shape[:2]
     water = detect_water(candidate_rgb, candidate_ndvi, ndwi_threshold)
-    steep_water = water & (np.asarray(dem_slope) > max_slope_deg)
+    judged = water
+    if baseline_rgb is not None:
+        judged = water & ~detect_water(baseline_rgb, baseline_ndvi,
+                                       ndwi_threshold)
+        if candidate_ndvi is None:
+            # Visible-only scenes: new water must also have moved TOWARD
+            # water in colour, not merely got darker. The visible test keys
+            # on "blue-dominant and darker than the median", so a pixel that
+            # was already bluish and was darkened -- by greening, wetting or
+            # shade -- crosses the threshold without becoming any more
+            # water-like. Measured on an RGB upload: 75 riparian pixels the
+            # generator greened (brightness 0.64 -> 0.47, blue share
+            # 0.355 -> 0.350) read as new water every iteration and held the
+            # loop open until its budget ran out. Painted water raises the
+            # blue share sharply; darkening does not.
+            judged &= (_blue_share(candidate_rgb)
+                       > _blue_share(baseline_rgb) + MIN_BLUE_SHIFT)
+    steep_water = judged & (np.asarray(dem_slope) > max_slope_deg)
 
     # Only contiguous blobs at or above the minimum water-body area count.
+    floor = min_cells(MIN_WATER_BODY_M2, cell_size_m)
     labels, n = ndimage.label(steep_water, structure=CONNECTIVITY)
     offending = _empty(shape)
     worst_slope = 0.0
     if n:
         sizes = ndimage.sum(steep_water, labels, range(1, n + 1))
         for label_id, size in enumerate(sizes, start=1):
-            if size >= MIN_WATER_BODY_CELLS:
+            if size >= floor:
                 blob = labels == label_id
                 offending |= blob
                 worst_slope = max(worst_slope, float(np.max(dem_slope[blob])))
@@ -139,7 +201,8 @@ def rule_gravity_slope(
         passed=count == 0, severity=severity, message=message, mask=offending,
         metrics={"violating_cells": count, "violating_area_m2": area_m2,
                  "worst_slope_deg": worst_slope,
-                 "total_water_cells": int(water.sum())},
+                 "total_water_cells": int(water.sum()),
+                 "judged_water_cells": int(judged.sum())},
     )
 
 
@@ -225,6 +288,7 @@ def rule_spectral_consistency(
     min_vegetation_ndvi: float = 0.15,
     greening_threshold: float = 0.015,
     min_patch_cells: int = MIN_WATER_BODY_CELLS,
+    baseline_ndvi: Optional[np.ndarray] = None,
 ) -> RuleResult:
     """Anything that turned green must also have turned bright in NIR.
 
@@ -262,6 +326,15 @@ def rule_spectral_consistency(
 
     greened = delta_green > greening_threshold
     nir_deficient = candidate_ndvi < min_vegetation_ndvi
+    if baseline_ndvi is not None:
+        # The absolute floor alone tests a LEVEL, but the principle is about
+        # CHANGE: greening must come with an NIR response. Paint on ground
+        # already above NDVI 0.15 -- an irrigated field, a riparian strip --
+        # cleared the floor however little NIR changed. A pixel that turned
+        # visibly greener while its NDVI did not rise at all has no red-edge
+        # response, whatever its starting level.
+        nir_deficient |= (candidate_ndvi
+                          - np.asarray(baseline_ndvi, dtype=np.float32)) <= 0.0
 
     # Open water must be excluded, or every legitimate reservoir this project
     # exists to create is flagged as a hallucination: water reflects more

@@ -121,29 +121,44 @@ class PhysicalPlausibilityCritic:
         years: int = 5,
         ndvi_ceiling: Optional[np.ndarray] = None,
         cell_size_m: Optional[float] = None,
+        scene_rules: Optional[tuple] = None,
+        has_nir: bool = True,
     ) -> CriticVerdict:
-        """Array-level entry point -- used directly by the unit tests."""
+        """Array-level entry point -- used directly by the unit tests.
+
+        scene_rules: the rules this scene's bands can support. A scene with
+        no NIR cannot be judged on growth (R2) or the red edge (R3); those
+        are skipped rather than run against a proxy that would let them pass
+        vacuously. Intersected with enabled_rules, so the ablation's rule
+        isolation still applies on top.
+        has_nir: False switches water detection to the visible-band test.
+        """
         cell_size_m = cell_size_m or float(settings.target_scale_m)
         shape = np.asarray(candidate_rgb).shape[:2]
+        active = tuple(r for r in self.enabled_rules
+                       if scene_rules is None or r in scene_rules)
 
         results: List[R.RuleResult] = []
 
-        if "R1" in self.enabled_rules:
+        if "R1" in active:
             results.append(R.rule_gravity_slope(
-                candidate_rgb, candidate_ndvi, dem_slope,
-                max_slope_deg=self.max_slope, cell_size_m=cell_size_m))
+                candidate_rgb, candidate_ndvi if has_nir else None, dem_slope,
+                max_slope_deg=self.max_slope, cell_size_m=cell_size_m,
+                baseline_rgb=baseline_rgb,
+                baseline_ndvi=baseline_ndvi if has_nir else None))
 
-        if "R2" in self.enabled_rules:
+        if "R2" in active:
             results.append(R.rule_ndvi_growth(
                 candidate_ndvi, baseline_ndvi, years=years,
                 max_annual_delta=self.max_ndvi_rate,
                 ndvi_ceiling=ndvi_ceiling))
 
-        if "R3" in self.enabled_rules:
+        if "R3" in active:
             results.append(R.rule_spectral_consistency(
-                candidate_rgb, baseline_rgb, candidate_ndvi))
+                candidate_rgb, baseline_rgb, candidate_ndvi,
+                baseline_ndvi=baseline_ndvi))
 
-        if "R4" in self.enabled_rules:
+        if "R4" in active:
             results.append(R.rule_unchanged_ssim(
                 candidate_rgb, baseline_rgb, change_mask,
                 min_ssim=self.min_ssim))
@@ -155,14 +170,24 @@ class PhysicalPlausibilityCritic:
             if not r.passed:
                 feedback |= np.asarray(r.mask, dtype=bool)
 
+        # Normalise by the weight of the rules actually evaluated. With all
+        # four (weights sum to 100) this is identical to 100 - penalty. With
+        # a subset it keeps the score on the same 0-100 scale: unnormalised,
+        # a scene judged on R1 and R4 alone could never score below 50, and a
+        # catastrophic result would read as passable.
+        weight = sum(RULE_WEIGHTS[r] for r in active)
         penalty = sum(RULE_WEIGHTS[r.rule_id] * r.severity
                       for r in results if not r.passed)
-        score = float(np.clip(100.0 - penalty, 0.0, 100.0))
+        score = (100.0 if weight == 0
+                 else float(np.clip(100.0 * (1.0 - penalty / weight),
+                                    0.0, 100.0)))
 
         metrics = {r.rule_id: {"name": r.name, "passed": r.passed,
                                "severity": round(r.severity, 4), **r.metrics}
                    for r in results}
-        metrics["evaluated_rules"] = list(self.enabled_rules)
+        metrics["evaluated_rules"] = list(active)
+        metrics["unsupported_rules"] = [r for r in self.enabled_rules
+                                        if r not in active]
         metrics["feedback_cells"] = int(feedback.sum())
         metrics["gating"] = self.gating
 
@@ -190,6 +215,9 @@ class PhysicalPlausibilityCritic:
             change_mask=state["spatial_change_mask"],
             years=int(state.get("intervention_year", 5)),
             ndvi_ceiling=guidance.get("ndvi_ceiling"),
+            scene_rules=(tuple(state["critic_rules"])
+                         if state.get("critic_rules") is not None else None),
+            has_nir=bool(state.get("has_nir", True)),
         )
         return verdict.as_dict()
 

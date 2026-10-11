@@ -159,6 +159,29 @@ def test_rule3_spectral():
     print(f"    feedback mask: {int(res.mask.sum())} px "
           f"({res.metrics['painted_fraction']:.0%} of greened area)")
 
+    # Paint over ground that was ALREADY vegetated (NDVI 0.40, above the
+    # 0.15 floor): visibly greener, NDVI unchanged. The absolute floor alone
+    # passes it; the change test must not.
+    veg_base_rgb = _paint(rgb, zone, (0.10, 0.12, 0.08))
+    veg_base_ndvi = ndvi.copy(); veg_base_ndvi[zone] = 0.40
+    repaint_rgb = _paint(rgb, zone, VEG)
+    level_only = R.rule_spectral_consistency(repaint_rgb, veg_base_rgb,
+                                             veg_base_ndvi)
+    with_change = R.rule_spectral_consistency(repaint_rgb, veg_base_rgb,
+                                              veg_base_ndvi,
+                                              baseline_ndvi=veg_base_ndvi)
+    print(f"  paint on vegetated ground (NDVI 0.40 -> 0.40): level test "
+          f"passed={level_only.passed}, change test passed="
+          f"{with_change.passed}")
+    assert level_only.passed and not with_change.passed
+
+    # Genuine densification of that canopy: greener AND NDVI rises.
+    grown_ndvi = veg_base_ndvi.copy(); grown_ndvi[zone] = 0.55
+    grown = R.rule_spectral_consistency(repaint_rgb, veg_base_rgb, grown_ndvi,
+                                        baseline_ndvi=veg_base_ndvi)
+    print(f"  canopy densified (NDVI 0.40 -> 0.55): passed={grown.passed}")
+    assert grown.passed, f"False positive on real growth: {grown.message}"
+
 
 # ==========================================================================
 # Rule 4 -- unchanged-area conservation
