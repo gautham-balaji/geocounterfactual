@@ -13,10 +13,23 @@ const LAYER_TO_IMAGERY_KEY = {
   critic_mask: 'critic',
 };
 
+/** "14.6822°N 79.1098°E", with the hemisphere taken from the sign. */
+function formatCoords(lat, lng) {
+  const la = Number(lat);
+  const lo = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(lo)) return '';
+  return `${Math.abs(la).toFixed(4)}°${la >= 0 ? 'N' : 'S'} `
+    + `${Math.abs(lo).toFixed(4)}°${lo >= 0 ? 'E' : 'W'}`;
+}
+
 export default function SatelliteSlider({
   region, activePreset, activeLayer, setActiveLayer,
   imagery = null, children = null,
   blink = false, loupe = false, loupeZoom = 3,
+  // {src, label}: an uploaded scene not yet simulated. Shown as itself,
+  // with no before/after split, rather than as a catalogue region's
+  // illustrated stand-in.
+  preview = null,
 }) {
   const [sliderPosition, setSliderPosition] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
@@ -59,9 +72,7 @@ export default function SatelliteSlider({
     setSliderPosition((x / rect.width) * 100);
   };
 
-  return (
-    <div className="flex flex-col gap-3">
-      {/* Layer Selector Header */}
+  const layerSelector = (
       <div className="flex flex-wrap items-center justify-between gap-4">
         <Label>Band</Label>
         <div className="flex items-center gap-1 overflow-x-auto">
@@ -87,6 +98,44 @@ export default function SatelliteSlider({
           ))}
         </div>
       </div>
+  );
+
+  // An uploaded scene before its first run: the image itself, and an honest
+  // placeholder for the layers only a simulation produces.
+  if (preview && !imagery) {
+    return (
+      <div className="flex flex-col gap-3">
+        {layerSelector}
+        <div
+          style={{ height: 'clamp(320px, 46vh, 520px)' }}
+          className="relative w-full rounded-xl overflow-hidden bg-surface-1 border border-line"
+        >
+          {activeLayer === 'optical' ? (
+            <RasterLayer src={preview.src} alt="Uploaded scene" />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
+              <span className="font-mono text-micro text-ink-tertiary">
+                This layer is produced by a simulation. Run one to see it.
+              </span>
+            </div>
+          )}
+          <div className="absolute top-4 left-4 z-10 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-base/80 backdrop-blur-md border border-line">
+            <Eye className="w-3 h-3 text-ink-tertiary" strokeWidth={1.75} />
+            <span className="text-micro text-ink-secondary">{preview.label}</span>
+          </div>
+          <div className="absolute bottom-4 left-4 z-10 px-2.5 py-1.5 rounded-lg bg-surface-base/80 backdrop-blur-md border border-line pointer-events-none">
+            <span className="font-mono text-micro text-ink-secondary">
+              {formatCoords(region?.lat, region?.lng)} · 10 m/px
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {layerSelector}
 
       {/* Main Image Slider Viewport */}
       <div
@@ -210,7 +259,7 @@ export default function SatelliteSlider({
         <div className="absolute bottom-4 left-4 right-4 z-10 flex items-center justify-between pointer-events-none">
           <div className="px-2.5 py-1.5 rounded-lg bg-surface-base/80 backdrop-blur-md border border-line">
             <span className="font-mono text-micro text-ink-secondary">
-              {region?.lat}°N {region?.lng}°E · 10 m/px
+              {formatCoords(region?.lat, region?.lng)} · 10 m/px
             </span>
           </div>
 

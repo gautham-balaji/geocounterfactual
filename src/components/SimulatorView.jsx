@@ -15,6 +15,24 @@ import CriticVerdicts from './CriticVerdicts';
 import { pipelineReducer, IDLE_PIPELINE, PIPELINE_NODES }
   from '../services/pipelineState';
 import RegionPicker from './RegionPicker';
+import UploadPanel from './UploadPanel';
+
+// Interventions for an uploaded scene. The region presets name their
+// region and carry that region's mock scores, neither of which belongs next
+// to someone's own image. Phrased so the deterministic planner parses each.
+const UPLOAD_PRESETS = [
+  { id: 'up-checkdams', title: 'Series Check-Dams',
+    text: 'Build 3 series check-dams along the main dry stream bed.' },
+  { id: 'up-farmponds', title: 'Farm Ponds',
+    text: 'Dig 5 farm ponds to harvest monsoon runoff for supplemental irrigation.' },
+  { id: 'up-contour', title: 'Contour Bunding',
+    text: 'Construct contour bunding across the upper slopes.' },
+  { id: 'up-afforest', title: 'Upland Afforestation',
+    text: 'Afforest 100 hectares of degraded upland with native dryland species.' },
+];
+
+const SPECTRAL_LABEL = { multispectral: 'Multispectral', rgb_nir: 'RGB + NIR',
+                         rgb: 'RGB only' };
 
 export default function SimulatorView({ activeRegionId, setActiveRegionId, onLogsChange }) {
   const selectedRegion = MOCK_REGIONS.find(r => r.id === activeRegionId) || MOCK_REGIONS[0];
@@ -29,8 +47,15 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
   const [pipeline, dispatchPipeline] = useReducer(pipelineReducer,
                                                   IDLE_PIPELINE);
   const [result, setResult] = useState(null);
+  const [runError, setRunError] = useState(null);
   const [backend, setBackend] = useState({ online: false });
   const [logs, setLogs] = useState([]);
+
+  // Scenes uploaded this session, newest first, and the one targeted (null
+  // when a catalogue region is the target).
+  const [uploads, setUploads] = useState([]);
+  const [uploadId, setUploadId] = useState(null);
+  const selectedUpload = uploads.find((u) => u.upload_id === uploadId) ?? null;
 
   // Free-roam target picked off the globe. Null means "a pilot zone is
   // selected"; anything else is an unverified location.
@@ -74,9 +99,55 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
     onLogsChange?.([]);
   }, [activeRegionId]);
 
-  const activePreset = selectedRegion.presets.find(p => p.id === selectedPresetId) || selectedRegion.presets[0];
+  const presets = selectedUpload ? UPLOAD_PRESETS : selectedRegion.presets;
+  const activePreset = presets.find(p => p.id === selectedPresetId) || presets[0];
+
+  // What the imagery describes. An upload has no catalogue entry, so the
+  // slider's coordinate readout comes from its own bbox.
+  const sceneRegion = selectedUpload
+    ? { name: selectedUpload.filename,
+        lat: ((selectedUpload.bbox[1] + selectedUpload.bbox[3]) / 2).toFixed(4),
+        lng: ((selectedUpload.bbox[0] + selectedUpload.bbox[2]) / 2).toFixed(4) }
+    : selectedRegion;
+
+  // Leaving one target for another must clear what the old one produced.
+  // The activeRegionId effect covers region changes; switching between a
+  // region and an upload may leave that id unchanged, so clear here too.
+  const clearOutput = () => {
+    setResult(null);
+    setRunError(null);
+    setLogs([]);
+    setActiveOverlays(new Set());
+    setSimStep(0);
+    dispatchPipeline({ type: 'reset' });
+    onLogsChange?.([]);
+  };
+
+  const handleSelectUpload = (id) => {
+    if (id === uploadId) return;
+    clearOutput();
+    setFreeTarget(null);
+    setUploadId(id);
+    setSelectedPresetId(UPLOAD_PRESETS[0].id);
+    setInputText(UPLOAD_PRESETS[0].text);
+  };
+
+  const handleUploaded = (upload) => {
+    setUploads((prev) => [upload,
+      ...prev.filter((u) => u.upload_id !== upload.upload_id)]);
+    // Selecting it straight away is what the user just asked for.
+    clearOutput();
+    setFreeTarget(null);
+    setUploadId(upload.upload_id);
+    setSelectedPresetId(UPLOAD_PRESETS[0].id);
+    setInputText(UPLOAD_PRESETS[0].text);
+  };
 
   const handleSelectRegion = (id) => {
+    if (uploadId) {
+      clearOutput();
+      setUploadId(null);
+    }
     setFreeTarget(null);
     setActiveRegionId(id);
     const next = MOCK_REGIONS.find((r) => r.id === id);
@@ -95,6 +166,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
     setIsSimulating(true);
     setSimStep(0);
     setResult(null);
+    setRunError(null);
     setLogs([]);
     dispatchPipeline({ type: 'reset' });
     onLogsChange?.([]);
@@ -105,6 +177,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
     const collected = [];
     const payload = await simulateStreaming({
       regionId: selectedRegion.id,
+      uploadId: selectedUpload?.upload_id ?? null,
       interventionText: inputText,
       targetYears: 5,
       onNode: (event) => {
@@ -118,6 +191,12 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
     });
     dispatchPipeline({ type: 'finish' });
 
+    // An uploaded scene never falls back to mock data; say what failed.
+    if (payload.error) {
+      setRunError(payload.error);
+      setIsSimulating(false);
+      return;
+    }
     setResult(payload);
     if (payload.execution_logs?.length) {
       setLogs(payload.execution_logs);
@@ -141,20 +220,26 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
       <div className="flex flex-wrap items-baseline justify-between gap-x-10 gap-y-3 pb-5 border-b border-line">
         <div className="flex items-baseline gap-3 min-w-0">
           <h2 className="text-h2 font-medium text-ink-primary truncate">
-            {selectedRegion.name}
+            {selectedUpload ? selectedUpload.filename : selectedRegion.name}
           </h2>
           <span className="text-label text-ink-tertiary truncate">
-            {selectedRegion.state}
+            {selectedUpload ? 'Uploaded scene' : selectedRegion.state}
           </span>
         </div>
 
         <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2">
-          {[
+          {(selectedUpload ? [
+            ['CRS', selectedUpload.crs],
+            ['Size', `${selectedUpload.shape[0]}x${selectedUpload.shape[1]} px`],
+            ['Bands', SPECTRAL_LABEL[selectedUpload.spectral_mode]
+              ?? selectedUpload.spectral_mode],
+            ['Rules', selectedUpload.critic_rules_evaluated.join(' ')],
+          ] : [
             ['Zone', selectedRegion.climateZone],
             ['NDVI', selectedRegion.baselineMetrics.ndvi],
             ['Built-up', selectedRegion.baselineMetrics.builtUp ?? 'n/a'],
             ['Rain', selectedRegion.baselineMetrics.rainfall],
-          ].map(([label, value]) => (
+          ]).map(([label, value]) => (
             <div key={label} className="flex items-baseline gap-2">
               <Label>{label}</Label>
               <span className="font-mono text-label text-ink-secondary">{value}</span>
@@ -170,7 +255,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
           {/* 3D Interactive Rotating Earth Globe */}
           <Globe3D
             regions={MOCK_REGIONS}
-            selectedRegionId={activeRegionId}
+            selectedRegionId={selectedUpload ? null : activeRegionId}
             freeTarget={freeTarget}
             onPickTarget={(t) => setFreeTarget(t)}
             onSelectRegion={handleSelectRegion}
@@ -184,7 +269,24 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
               ? 'border-line bg-surface-1'
               : 'border-caution/30 bg-caution/5',
           )}>
-            {targetIsVerified ? (
+            {targetIsVerified && selectedUpload ? (
+              <>
+                <CheckCircle2 className="w-4 h-4 text-positive shrink-0 mt-0.5" strokeWidth={1.75} />
+                <div className="min-w-0">
+                  <div className="text-label text-ink-primary">Uploaded scene, prepared</div>
+                  <div className="text-micro text-ink-tertiary mt-0.5 leading-relaxed">
+                    On the 10 m grid with Copernicus terrain. Judged on{' '}
+                    {selectedUpload.critic_rules_evaluated.join(', ')}.
+                  </div>
+                  {Object.entries(selectedUpload.critic_rules_disabled || {}).map(
+                    ([rule, why]) => (
+                      <div key={rule} className="text-micro text-caution mt-1 leading-relaxed">
+                        {rule} not judged: {why}.
+                      </div>
+                    ))}
+                </div>
+              </>
+            ) : targetIsVerified ? (
               <>
                 <CheckCircle2 className="w-4 h-4 text-positive shrink-0 mt-0.5" strokeWidth={1.75} />
                 <div>
@@ -217,9 +319,18 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
 
           <RegionPicker
             regions={MOCK_REGIONS}
-            selectedId={activeRegionId}
+            selectedId={selectedUpload ? null : activeRegionId}
             onSelect={handleSelectRegion}
             disabled={isSimulating}
+          />
+
+          <UploadPanel
+            uploads={uploads}
+            selectedId={uploadId}
+            onUploaded={handleUploaded}
+            onSelect={handleSelectUpload}
+            disabled={isSimulating}
+            backendOnline={backend.online}
           />
 
           {/* Intervention Input Box & Preset Buttons */}
@@ -249,7 +360,7 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
             <div className="space-y-2">
               <Label>Presets</Label>
               <div className="space-y-1.5">
-                {selectedRegion.presets.map((preset) => {
+                {presets.map((preset) => {
                   const isSelected = preset.id === selectedPresetId;
                   return (
                     <button
@@ -267,9 +378,11 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
                         <div className="text-label text-ink-primary">{preset.title}</div>
                         <div className="text-micro text-ink-tertiary line-clamp-1 mt-0.5">{preset.text}</div>
                       </div>
-                      <span className="font-mono text-micro text-ink-tertiary shrink-0 mt-0.5">
-                        {preset.metricsDelta.plausibilityScore}
-                      </span>
+                      {preset.metricsDelta && (
+                        <span className="font-mono text-micro text-ink-tertiary shrink-0 mt-0.5">
+                          {preset.metricsDelta.plausibilityScore}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -299,6 +412,18 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
                 'Run simulation'
               )}
             </Button>
+
+            {runError && !isSimulating && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-critical/30 bg-critical/5 px-3.5 py-2.5">
+                <AlertTriangle className="w-4 h-4 text-critical shrink-0 mt-0.5" strokeWidth={1.75} />
+                <div className="min-w-0">
+                  <div className="text-label text-critical">Simulation failed</div>
+                  <div className="text-micro text-ink-secondary mt-0.5 leading-relaxed break-words">
+                    {runError}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Live pipeline strip: the node RUNNING now (named by the
                 server's routing, not inferred from the last log line), one
@@ -356,7 +481,11 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
           {/* Before & After Satellite Image Slider */}
           <SatelliteSlider
             imagery={result?.imagery ?? null}
-            region={selectedRegion}
+            region={sceneRegion}
+            preview={selectedUpload && !result
+              ? { src: selectedUpload.preview_url,
+                  label: 'Uploaded scene · not yet simulated' }
+              : null}
             activePreset={activePreset}
             activeLayer={activeLayer}
             setActiveLayer={setActiveLayer}
@@ -417,12 +546,14 @@ export default function SimulatorView({ activeRegionId, setActiveRegionId, onLog
           </div>
 
           {/* Metrics & Physical Plausibility Audit Panel */}
+          {(!selectedUpload || result) && (
           <MetricsPanel
             selectedRegion={selectedRegion}
             activePreset={activePreset}
             simulationResult={simStep === 6}
             liveResult={result}
           />
+          )}
         </div>
       </div>
     </div>

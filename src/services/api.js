@@ -126,12 +126,20 @@ export async function simulate({ regionId, interventionText, targetYears = 5,
  * critic's reject-and-retry visible while it happens rather than as a
  * transcript after the fact.
  *
- * Returns the final payload. Falls back to mock data if the backend or the
- * stream is unavailable.
+ * Returns the final payload. For a catalogue region it falls back to mock
+ * data if the backend or the stream is unavailable. For an uploaded scene
+ * (uploadId) it returns {error} instead: the mock data describes a pilot
+ * region, and showing it beside someone's own image would be fabrication.
  */
 export async function simulateStreaming({ regionId, interventionText,
                                           targetYears = 5, bbox = null,
+                                          uploadId = null,
                                           onNode = () => {} }) {
+  const degrade = (reason) => (uploadId
+    ? { source: 'error', error: reason }
+    : { ...buildMockResult(regionId, interventionText),
+        fallback_reason: reason });
+
   let jobId;
   try {
     const res = await fetchWithTimeout(`${API_BASE}/api/simulate/async`, {
@@ -142,11 +150,16 @@ export async function simulateStreaming({ regionId, interventionText,
         intervention_text: interventionText,
         target_years: targetYears,
         bbox,
+        upload_id: uploadId,
       }),
     }, HEALTH_TIMEOUT_MS * 2);
-    if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(errorDetail(body) || `Backend returned ${res.status}`);
+    }
     ({ job_id: jobId } = await res.json());
   } catch (err) {
+    if (uploadId) return degrade(err.message);
     console.warn('[GeoCounterfactual] Cannot start job, using mock data:',
       err.message);
     const mock = buildMockResult(regionId, interventionText);
@@ -194,8 +207,7 @@ export async function simulateStreaming({ regionId, interventionText,
       try {
         finish({ ...JSON.parse(evt.data), source: 'backend' });
       } catch (err) {
-        finish({ ...buildMockResult(regionId, interventionText),
-                 fallback_reason: err.message });
+        finish(degrade(err.message));
       }
     });
 
@@ -211,8 +223,7 @@ export async function simulateStreaming({ regionId, interventionText,
         let message = 'pipeline error';
         try { message = JSON.parse(evt.data).message ?? message; } catch { /* keep default */ }
         console.warn('[GeoCounterfactual] Pipeline failed:', message);
-        finish({ ...buildMockResult(regionId, interventionText),
-                 fallback_reason: message });
+        finish(degrade(message));
         return;
       }
 
@@ -224,11 +235,62 @@ export async function simulateStreaming({ regionId, interventionText,
       if (recovered.payload) {
         finish({ ...recovered.payload, source: 'backend', recovered: true });
       } else {
-        finish({ ...buildMockResult(regionId, interventionText),
-                 fallback_reason: `stream lost: ${recovered.reason}` });
+        finish(degrade(`stream lost: ${recovered.reason}`));
       }
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Uploads
+// ---------------------------------------------------------------------------
+
+export const UPLOAD_ACCEPT = '.tif,.tiff,.png,.jpg,.jpeg';
+export const UPLOAD_MAX_BYTES = 200 * 1024 * 1024;   // mirrors the server
+// Preparing an upload fetches its terrain from Earth Engine, so it can take
+// far longer than an ordinary request.
+const UPLOAD_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** Plain images carry no coordinates; the server needs a bbox for them. */
+export function needsBbox(filename) {
+  return /\.(png|jpe?g)$/i.test(filename || '');
+}
+
+/** FastAPI errors: {detail: string} or {detail: [{msg}, ...]}. */
+function errorDetail(body) {
+  const d = body?.detail;
+  if (Array.isArray(d)) return d.map((e) => e.msg || String(e)).join('; ');
+  return typeof d === 'string' ? d : null;
+}
+
+/**
+ * POST a scene to /api/upload.
+ *
+ * bbox is [minLon, minLat, maxLon, maxLat], required by the server only for
+ * an image with no georeferencing; bandOrder names unlabelled bands, e.g.
+ * 'red,green,blue,nir'. Resolves {ok: true, upload} or {ok: false, status,
+ * error}, where error is the server's own explanation. Never throws.
+ */
+export async function uploadScene({ file, bbox = null, bandOrder = null }) {
+  const form = new FormData();
+  form.append('file', file);
+  if (bbox) form.append('bbox', bbox.join(','));
+  if (bandOrder) form.append('band_order', bandOrder);
+  try {
+    const res = await fetchWithTimeout(`${API_BASE}/api/upload`,
+      { method: 'POST', body: form }, UPLOAD_TIMEOUT_MS);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, status: res.status,
+               error: errorDetail(body) || `Upload failed (HTTP ${res.status})` };
+    }
+    return { ok: true, upload: body };
+  } catch (err) {
+    return { ok: false, status: 0,
+             error: err.name === 'AbortError'
+               ? 'The upload timed out while the server prepared it.'
+               : 'The backend is unreachable.' };
+  }
 }
 
 const RECOVER_POLL_MS = 3000;
