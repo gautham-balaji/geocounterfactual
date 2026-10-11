@@ -223,9 +223,13 @@ class Settings(BaseSettings):
     # Model id is configurable rather than hardcoded: the available Gemini
     # model names move, and a stale literal would surface as a runtime 404.
     gemini_api_key: Optional[str] = None
-    # Verified present in the live models.list() for this key alongside
-    # gemini-3.5-flash. Override with GEMINI_MODEL.
-    gemini_model: str = "gemini-3.8-flash"
+    # Chosen 2026-10-09 by probing the planner's structured-output call:
+    # 3.8-flash 429 (free-tier quota exhausted), 3.7-flash 503, 3.6-flash
+    # 503 on 3 of 5 calls, 3.5-flash 3/3 with correct parses (including
+    # "150 hectares" read as area, not count), 2.5-flash 3/3. Free-tier
+    # quota is per model, so another id is the first thing to try when one
+    # runs dry. Override with GEMINI_MODEL in .env.
+    gemini_model: str = "gemini-3.5-flash"
 
     # --- Generator backend: stub | local | remote (see generator/base.py) ---
     generator_backend: str = "stub"
