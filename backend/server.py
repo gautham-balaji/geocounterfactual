@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import shutil
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -71,6 +71,21 @@ class SimulateRequest(BaseModel):
     intervention_text: str
     target_years: int = Field(default=5, ge=1, le=20)
     bbox: Optional[List[float]] = None
+    # From POST /api/upload. When set, region_id and bbox are ignored.
+    upload_id: Optional[str] = None
+
+
+def _check_target(req: SimulateRequest) -> None:
+    """404 for an unknown region or upload, before any work is queued."""
+    from backend.data_engine.cache import upload_exists
+
+    if req.upload_id:
+        if not upload_exists(req.upload_id):
+            raise HTTPException(404, f"Unknown upload '{req.upload_id}'. "
+                                     f"Uploads expire with the cache; upload "
+                                     f"the file again.")
+    elif req.region_id not in REGIONS:
+        raise HTTPException(404, f"Unknown region '{req.region_id}'")
 
 
 class HealthResponse(BaseModel):
@@ -276,6 +291,36 @@ def _metrics(state: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
+def _scene_info(state: Dict[str, Any]) -> Dict[str, Any]:
+    """What the scene could be judged on, and which layers are proxies.
+
+    The frontend must not present a rule that never ran as passed, or a
+    visible-band proxy as measured NDVI.
+    """
+    from backend.critic.physics_critic import ALL_RULES
+
+    proxies = state.get("index_proxies") or {}
+    layer_notes = {}
+    if "ndvi" in proxies:
+        layer_notes["ndvi"] = (f"Shows {proxies['ndvi']}; there is no NIR "
+                               f"band to compute NDVI from.")
+    if "ndmi" in proxies:
+        layer_notes["moisture"] = ("No measured moisture baseline (needs NIR "
+                                   "and SWIR); the after view shows only the "
+                                   "modelled recharge plume.")
+    return {
+        "source": state.get("scene_source", "unknown"),
+        "upload_id": state.get("upload_id"),
+        "spectral_mode": state.get("spectral_mode", "multispectral"),
+        "available_bands": state.get("available_bands") or [],
+        "critic_rules_evaluated": list(state.get("critic_rules")
+                                       or ALL_RULES),
+        "critic_rules_disabled": state.get("critic_rules_disabled") or {},
+        "index_proxies": proxies,
+        "layer_notes": layer_notes,
+    }
+
+
 def _build_response(state: Dict[str, Any], run_id: str,
                     elapsed: float) -> Dict[str, Any]:
     logs = state.get("execution_logs") or []
@@ -291,6 +336,7 @@ def _build_response(state: Dict[str, Any], run_id: str,
         "critic_rejections": len(rejections),
         "violations": state.get("violations") or [],
         "scene_source": state.get("scene_source", "unknown"),
+        "scene": _scene_info(state),
         "generator_backend": settings.generator_backend,
         "intervention_plan": state.get("intervention_plan") or {},
         "target_stream_coords": state.get("target_stream_coords") or [],
@@ -334,6 +380,111 @@ def list_regions() -> Dict[str, Any]:
         for r in REGIONS.values()]}
 
 
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+MAX_STORED_UPLOADS = 20
+
+
+def _parse_bbox(text: Optional[str]) -> Optional[List[float]]:
+    if not text:
+        return None
+    try:
+        values = [float(v) for v in text.split(",")]
+    except ValueError:
+        values = []
+    if len(values) != 4:
+        raise HTTPException(422, "bbox must be four numbers: "
+                                 "min_lon,min_lat,max_lon,max_lat")
+    min_lon, min_lat, max_lon, max_lat = values
+    if not (-180 <= min_lon < max_lon <= 180 and -90 <= min_lat < max_lat <= 90):
+        raise HTTPException(422, f"bbox {values} is not a valid lon/lat box "
+                                 f"(min before max, within +-180 / +-90)")
+    return values
+
+
+def _prune_uploads() -> None:
+    """Keep the newest N uploads; each prepared scene is a few MB."""
+    cache_dir = settings.cache_dir
+    metas = sorted(cache_dir.glob("upload_*.json"),
+                   key=lambda f: f.stat().st_mtime, reverse=True)
+    for meta in metas[MAX_STORED_UPLOADS:]:
+        upload_id = meta.stem.removeprefix("upload_")
+        meta.unlink(missing_ok=True)
+        meta.with_suffix(".npz").unlink(missing_ok=True)
+        shutil.rmtree(settings.static_dir / "uploads" / upload_id,
+                      ignore_errors=True)
+
+
+@app.post("/api/upload")
+def upload(file: UploadFile = File(...),
+           bbox: Optional[str] = Form(None),
+           band_order: Optional[str] = Form(None)) -> Dict[str, Any]:
+    """Prepare a user image for simulation.
+
+    Multipart form: `file` (GeoTIFF, PNG or JPEG); `bbox` as
+    min_lon,min_lat,max_lon,max_lat, required only for an image with no
+    georeferencing; `band_order` such as red,green,blue,nir when the file's
+    bands are not labelled. Returns an upload_id for /api/simulate/async,
+    plus what the scene supports -- before any run, so a user learns that an
+    RGB image cannot be judged on R2 and R3 up front.
+    """
+    from backend.agents.input_handler import scene_capabilities
+    from backend.data_engine.cache import prepare_upload
+    from backend.data_engine.gee_loader import TerrainUnavailableError
+    from backend.data_engine.raster_io import UPLOAD_EXTENSIONS, UploadError
+
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in UPLOAD_EXTENSIONS:
+        raise HTTPException(415, f"Unsupported file type '{suffix}'. Upload "
+                                 f"a GeoTIFF, PNG or JPEG.")
+    bbox_values = _parse_bbox(bbox)
+    order = ([b.strip() for b in band_order.split(",") if b.strip()]
+             if band_order else None)
+
+    incoming = settings.cache_dir / "uploads"
+    incoming.mkdir(parents=True, exist_ok=True)
+    # A server-chosen name: the client's filename never touches the disk.
+    tmp = incoming / f"incoming_{uuid.uuid4().hex}{suffix}"
+    try:
+        size = 0
+        with tmp.open("wb") as fh:
+            while chunk := file.file.read(1 << 20):
+                size += len(chunk)
+                if size > MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        413, f"File exceeds {MAX_UPLOAD_BYTES >> 20} MB.")
+                fh.write(chunk)
+        try:
+            upload_id, scene = prepare_upload(
+                tmp, file.filename or tmp.name, bbox=bbox_values,
+                band_order=order)
+        except UploadError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+        except TerrainUnavailableError as exc:
+            raise HTTPException(503, str(exc)) from exc
+    finally:
+        tmp.unlink(missing_ok=True)
+
+    caps = scene_capabilities(scene.bands)
+    preview = settings.static_dir / "uploads" / upload_id / "preview.png"
+    raster_io.render_rgb(scene.rgb, preview)
+    _prune_uploads()
+
+    return {
+        "upload_id": upload_id,
+        "filename": Path(file.filename or "").name,
+        "shape": list(scene.shape),
+        "crs": scene.crs,
+        "bbox": [round(v, 6) for v in scene.bbox],
+        "spectral_mode": caps["spectral"]["mode"],
+        "available_bands": caps["available_bands"],
+        "critic_rules_evaluated": caps["critic_rules"],
+        "critic_rules_disabled": caps["critic_rules_disabled"],
+        "index_proxies": caps["spectral"]["proxies"],
+        "notes": [n for n in scene.notes],
+        "preview_url": f"/static/uploads/{upload_id}/preview.png",
+    }
+
+
 @app.post("/api/simulate")
 def simulate(req: SimulateRequest) -> Dict[str, Any]:
     """Synchronous run -- the spec 7.1 contract.
@@ -343,8 +494,7 @@ def simulate(req: SimulateRequest) -> Dict[str, Any]:
     """
     from backend.agents.workflow import run_simulation
 
-    if req.region_id not in REGIONS:
-        raise HTTPException(404, f"Unknown region '{req.region_id}'")
+    _check_target(req)
 
     run_id = uuid.uuid4().hex[:12]
     started = time.time()
@@ -354,6 +504,7 @@ def simulate(req: SimulateRequest) -> Dict[str, Any]:
             intervention_text=req.intervention_text,
             intervention_year=req.target_years,
             bbox=req.bbox,
+            upload_id=req.upload_id,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Simulation failed")
@@ -366,8 +517,7 @@ def simulate(req: SimulateRequest) -> Dict[str, Any]:
 
 @app.post("/api/simulate/async")
 def simulate_async(req: SimulateRequest) -> Dict[str, str]:
-    if req.region_id not in REGIONS:
-        raise HTTPException(404, f"Unknown region '{req.region_id}'")
+    _check_target(req)
     job_id = _new_job(req)
     return {"job_id": job_id,
             "stream_url": f"/api/stream/{job_id}"}
@@ -405,7 +555,8 @@ async def stream(job_id: str):
                     region_id=req.region_id,
                     intervention_text=req.intervention_text,
                     intervention_year=req.target_years,
-                    bbox=req.bbox):
+                    bbox=req.bbox,
+                    upload_id=req.upload_id):
                 # execution_logs uses an operator.add reducer, so each update
                 # carries only that node's NEW entries -- accumulate here.
                 for key, value in update.items():

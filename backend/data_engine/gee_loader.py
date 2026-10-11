@@ -93,6 +93,26 @@ def _mask_clouds(image: ee.Image) -> ee.Image:
     return image.updateMask(rejected.Not().And(clear_enough))
 
 
+def terrain_image(roi: ee.Geometry, crs: str) -> ee.Image:
+    """Copernicus GLO-30 elevation plus slope in degrees, as two bands.
+
+    The single definition of terrain for both the catalogue regions and
+    uploads, so the projection fix below cannot be dropped from one of them.
+    setDefaultProjection is load-bearing: a mosaic carries no meaningful
+    projection, and without it Terrain.slope returns an entirely masked band
+    -- the gravity rule then has no slope to test and passes everything.
+    """
+    dem = (
+        ee.ImageCollection(DEM_COLLECTION)
+        .filterBounds(roi)
+        .select("DEM")
+        .mosaic()
+        .setDefaultProjection(crs, None, 30)
+    )
+    slope = ee.Terrain.slope(dem).rename("slope")
+    return dem.rename("elevation").addBands(slope)
+
+
 def build_scene_image(bbox: Sequence[float], start_date: str, end_date: str,
                       crs: str) -> ee.Image:
     """Compose the multi-band Earth Engine image for one region and window."""
@@ -117,18 +137,7 @@ def build_scene_image(bbox: Sequence[float], start_date: str, end_date: str,
         .clip(roi)
     )
 
-    # setDefaultProjection is load-bearing: without it Terrain.slope on a
-    # mosaic yields an entirely masked band.
-    dem = (
-        ee.ImageCollection(DEM_COLLECTION)
-        .filterBounds(roi)
-        .select("DEM")
-        .mosaic()
-        .setDefaultProjection(crs, None, 30)
-    )
-    slope = ee.Terrain.slope(dem).rename("slope")
-
-    return composite.addBands(dem.rename("elevation")).addBands(slope).clip(roi)
+    return composite.addBands(terrain_image(roi, crs)).clip(roi)
 
 
 def _download_geotiff(image: ee.Image, bbox: Sequence[float], crs: str,
@@ -212,6 +221,79 @@ def fetch_scene(
     )
     logger.info("Fetched %s", scene)
     return scene
+
+
+class TerrainUnavailableError(RuntimeError):
+    """No usable DEM for an upload. Raised instead of fabricating terrain."""
+
+
+# A DEM pixel with no data after warping is filled from its neighbours; more
+# than this and the tile edge or a hole is too large to trust.
+MAX_DEM_GAP_FRACTION = 0.05
+
+
+def fetch_dem(bbox: Sequence[float], crs: str, scale: Optional[int] = None,
+              dst_transform: Optional[rasterio.Affine] = None,
+              dst_shape: Optional[tuple] = None) -> Dict[str, np.ndarray]:
+    """Copernicus DEM elevation and slope for an arbitrary bbox.
+
+    bbox is lon/lat. With dst_transform and dst_shape the result is warped
+    onto that exact grid -- the grid of an uploaded image -- so slope and
+    reflectance index the same ground. The optical data is never resampled
+    to fit the DEM: interpolating reflectance would alter the very values the
+    critic judges, whereas the DEM is already a 30 m product interpolated to
+    10 m on every path.
+
+    The request is padded by a few pixels so the warp has real data at the
+    edges instead of holes. Slope is computed in Earth Engine on the 30 m DEM
+    (via terrain_image), as for the catalogue regions, and then warped,
+    rather than differentiated again from the upsampled elevation.
+    """
+    from rasterio.warp import Resampling, reproject
+    from scipy import ndimage
+
+    initialize_gee()
+    scale = scale or settings.target_scale_m
+
+    mid_lat = (bbox[1] + bbox[3]) / 2.0
+    pad_lat = 5 * scale / 110_540.0
+    pad_lon = 5 * scale / (111_320.0 * max(np.cos(np.radians(mid_lat)), 0.1))
+    padded = [bbox[0] - pad_lon, bbox[1] - pad_lat,
+              bbox[2] + pad_lon, bbox[3] + pad_lat]
+    roi = ee.Geometry.BBox(*padded)
+
+    payload = _download_geotiff(terrain_image(roi, crs).clip(roi), padded,
+                                crs, scale)
+    bands, transform, actual_crs = _read_geotiff(payload,
+                                                 ["elevation", "slope"])
+    missing = [b for b in ("elevation", "slope") if b not in bands]
+    if missing:
+        raise TerrainUnavailableError(f"DEM response missing {missing}")
+
+    if dst_transform is None or dst_shape is None:
+        return bands
+
+    out: Dict[str, np.ndarray] = {}
+    for name in ("elevation", "slope"):
+        dst = np.full(dst_shape, np.nan, dtype=np.float32)
+        reproject(source=bands[name].astype(np.float32), destination=dst,
+                  src_transform=transform, src_crs=actual_crs or crs,
+                  dst_transform=dst_transform, dst_crs=crs,
+                  src_nodata=np.nan, dst_nodata=np.nan,
+                  resampling=Resampling.bilinear)
+        gaps = ~np.isfinite(dst)
+        if gaps.mean() > MAX_DEM_GAP_FRACTION:
+            raise TerrainUnavailableError(
+                f"DEM covers only {100 * (1 - gaps.mean()):.0f}% of the "
+                f"upload; is it outside Copernicus GLO-30 coverage?")
+        if gaps.any():
+            # Priority-flood and D8 cannot route through NaN; a NaN cell
+            # compares false against everything and corrupts the queue.
+            _, (rows, cols) = ndimage.distance_transform_edt(
+                gaps, return_distances=True, return_indices=True)
+            dst = dst[rows, cols]
+        out[name] = dst.astype(np.float32)
+    return out
 
 
 def count_available_scenes(bbox: Sequence[float], start_date: str,

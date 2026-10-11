@@ -18,12 +18,13 @@ the whole list. Every other channel keeps replace semantics, which is correct
 from __future__ import annotations
 
 import operator
-from typing import Annotated, Any, Dict, List, TypedDict
+from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
 
 class GeoCounterfactualState(TypedDict, total=False):
     # --- Input metadata ---
-    region_id: str
+    region_id: str                    # catalogue id, or "upload"
+    upload_id: Optional[str]          # set when the scene is a user upload
     bbox: List[float]                 # [min_lon, min_lat, max_lon, max_lat]
     intervention_text: str            # plain-language instruction
     intervention_year: int            # target horizon in years (e.g. 5)
@@ -39,7 +40,18 @@ class GeoCounterfactualState(TypedDict, total=False):
     dem_slope: Any                    # degrees
     geotransform: Any                 # affine transform for GeoTIFF export
     crs: str
-    scene_source: str                 # "gee" | "cache" | "synthetic"
+    scene_source: str                 # "gee" | "cache" | "synthetic" | "upload"
+
+    # --- What the scene's bands can support ---
+    # An RGB upload has no NIR, so NDVI is a visible-band proxy and the rules
+    # that test NIR physics cannot run. Everything downstream reads these
+    # rather than assuming a full Sentinel-2 stack.
+    available_bands: List[str]
+    spectral_mode: str                # "multispectral" | "rgb_nir" | "rgb"
+    has_nir: bool
+    index_proxies: Dict[str, str]     # index -> what stands in for it
+    critic_rules: List[str]           # rules this scene can be judged on
+    critic_rules_disabled: Dict[str, str]   # rule -> why it cannot run
 
     # --- Agent artifacts ---
     spatial_change_mask: Any          # weighted: 1.0 water, 0.5 riparian buffer
@@ -74,10 +86,12 @@ def initial_state(
     bbox: List[float],
     intervention_text: str,
     intervention_year: int = 5,
+    upload_id: Optional[str] = None,
 ) -> GeoCounterfactualState:
     """Seed a run. Channels the nodes populate are left absent, not None."""
     return GeoCounterfactualState(
         region_id=region_id,
+        upload_id=upload_id,
         bbox=list(bbox),
         intervention_text=intervention_text,
         intervention_year=intervention_year,

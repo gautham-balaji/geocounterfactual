@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { TrendingUp, Droplets, Activity, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { TrendingUp, Droplets, Activity, CheckCircle2, AlertTriangle,
+         CircleMinus } from 'lucide-react';
 import { cn, Label, Panel, Badge, ModelledBadge, Divider } from './ui/primitives';
 
 const RULE_ROWS = [
@@ -46,7 +47,14 @@ export default function MetricsPanel({ selectedRegion, activePreset,
     if (/Spectral/i.test(v)) failedIds.add('R3');
     if (/Drift/i.test(v)) failedIds.add('R4');
   });
-  const passCount = RULE_ROWS.length - (isLive ? failedIds.size : 0);
+  // A scene without NIR (an RGB upload) cannot be judged on R2 or R3. Those
+  // rows must read "not evaluated", never "pass": a rule that did not run
+  // is not evidence the scene obeys it.
+  const scene = isLive ? liveResult?.scene : null;
+  const disabled = scene?.critic_rules_disabled ?? {};
+  const evaluatedCount = RULE_ROWS.filter((r) => !disabled[r.id]).length;
+  const passCount = evaluatedCount - (isLive ? failedIds.size : 0);
+  const rgbOnly = scene?.spectral_mode === 'rgb';
 
   const tone = score >= 90 ? 'positive' : score >= 70 ? 'caution' : 'critical';
   const ringStroke = { positive: '#4ADE80', caution: '#FBBF24', critical: '#F87171' }[tone];
@@ -85,9 +93,12 @@ export default function MetricsPanel({ selectedRegion, activePreset,
                 <Badge tone="info">
                   {liveResult.scene_source === 'gee'
                     ? 'Sentinel-2'
-                    : String(liveResult.scene_source)}
+                    : liveResult.scene_source === 'upload'
+                      ? 'Uploaded scene'
+                      : String(liveResult.scene_source)}
                 </Badge>
               )}
+              {rgbOnly && <Badge tone="caution">RGB only</Badge>}
               {isLive && liveResult?.generator_backend && (
                 <Badge tone="neutral">{liveResult.generator_backend}</Badge>
               )}
@@ -148,8 +159,11 @@ export default function MetricsPanel({ selectedRegion, activePreset,
       {/* ---- Deltas ---- */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-line rounded-xl overflow-hidden border border-line">
         {[
-          { icon: TrendingUp, label: 'NDVI delta', value: metrics.ndviDelta,
-            caption: 'Biomass index, 5 yr', modelled: false },
+          rgbOnly
+            ? { icon: TrendingUp, label: 'Greenness delta', value: metrics.ndviDelta,
+                caption: 'Visible proxy (GLI), no NIR', modelled: true }
+            : { icon: TrendingUp, label: 'NDVI delta', value: metrics.ndviDelta,
+                caption: 'Biomass index, 5 yr', modelled: false },
           { icon: Droplets, label: 'Soil moisture', value: metrics.soilMoistureDelta,
             caption: 'Recharge plume', modelled: true },
           { icon: Activity, label: 'Runoff retention', value: metrics.waterRetentionDelta,
@@ -174,14 +188,17 @@ export default function MetricsPanel({ selectedRegion, activePreset,
         <div className="flex items-center justify-between">
           <Label>Rule compliance</Label>
           <span className={cn('font-mono text-micro',
-            passCount === 4 ? 'text-positive' : 'text-critical')}>
-            {passCount}/4 passed
+            passCount === evaluatedCount ? 'text-positive' : 'text-critical')}>
+            {passCount}/{evaluatedCount} passed
+            {evaluatedCount < RULE_ROWS.length &&
+              ` · ${RULE_ROWS.length - evaluatedCount} not evaluated`}
           </span>
         </div>
 
         <div className="space-y-px">
           {RULE_ROWS.map((item) => {
             const failed = isLive && failedIds.has(item.id);
+            const skipped = Boolean(disabled[item.id]);
             return (
               <div
                 key={item.id}
@@ -193,13 +210,19 @@ export default function MetricsPanel({ selectedRegion, activePreset,
                   </span>
                   <div className="min-w-0">
                     <div className="text-label text-ink-primary">{item.label}</div>
-                    <div className="text-micro text-ink-tertiary">{item.detail}</div>
+                    <div className="text-micro text-ink-tertiary">
+                      {skipped ? `Not evaluated: ${disabled[item.id]}` : item.detail}
+                    </div>
                   </div>
                 </div>
-                <Badge tone={failed ? 'critical' : 'positive'}
-                       icon={failed ? AlertTriangle : CheckCircle2}>
-                  {failed ? 'Fail' : 'Pass'}
-                </Badge>
+                {skipped ? (
+                  <Badge tone="neutral" icon={CircleMinus}>N/A</Badge>
+                ) : (
+                  <Badge tone={failed ? 'critical' : 'positive'}
+                         icon={failed ? AlertTriangle : CheckCircle2}>
+                    {failed ? 'Fail' : 'Pass'}
+                  </Badge>
+                )}
               </div>
             );
           })}

@@ -6,6 +6,8 @@
 fastapi>=0.115,<1
 uvicorn[standard]>=0.30
 sse-starlette>=2.1
+# Multipart form parsing for POST /api/upload (FastAPI UploadFile/Form).
+python-multipart>=0.0.9
 pydantic>=2.8,<3
 pydantic-settings>=2.4
 python-dotenv>=1.0

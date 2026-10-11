@@ -98,16 +98,19 @@ def run_simulation(
     intervention_year: int = 5,
     bbox: Optional[List[float]] = None,
     recursion_limit: int = 40,
+    upload_id: Optional[str] = None,
 ) -> GeoCounterfactualState:
     """Execute the full pipeline synchronously and return the final state."""
     from backend.config import REGIONS
 
     region = REGIONS.get(region_id)
+    # An upload carries its own bbox; the input handler resolves it.
     seed = initial_state(
         region_id=region_id,
-        bbox=bbox or (region.bbox if region else []),
+        bbox=bbox or (region.bbox if region and not upload_id else []),
         intervention_text=intervention_text,
         intervention_year=intervention_year,
+        upload_id=upload_id,
     )
     return get_workflow().invoke(seed, config={"recursion_limit": recursion_limit})
 
@@ -118,6 +121,7 @@ def stream_simulation(
     intervention_year: int = 5,
     bbox: Optional[List[float]] = None,
     recursion_limit: int = 40,
+    upload_id: Optional[str] = None,
 ):
     """Yield (node_name, update) as each node completes.
 
@@ -126,11 +130,13 @@ def stream_simulation(
     from backend.config import REGIONS
 
     region = REGIONS.get(region_id)
+    # An upload carries its own bbox; the input handler resolves it.
     seed = initial_state(
         region_id=region_id,
-        bbox=bbox or (region.bbox if region else []),
+        bbox=bbox or (region.bbox if region and not upload_id else []),
         intervention_text=intervention_text,
         intervention_year=intervention_year,
+        upload_id=upload_id,
     )
     for chunk in get_workflow().stream(seed,
                                        config={"recursion_limit": recursion_limit}):
