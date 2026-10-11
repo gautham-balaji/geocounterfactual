@@ -171,17 +171,36 @@ def preflight(backend: str, variants: List[str]) -> None:
                      f"running, and is REMOTE_GENERATOR_URL current?")
         protocol = int(health.get("protocol", 1))
         if protocol < ABLATION_PROTOCOL:
+            why = ("it ignores use_lora, so the base arms would silently run "
+                   "the adapter" if protocol < 2 else
+                   "it has no /warmup and hides load failures behind a bare "
+                   "500, which is how a missing peft aborted runs as an "
+                   "unexplained stub fallback")
             sys.exit(f"Colab server speaks protocol {protocol}; the ablation "
-                     f"needs {ABLATION_PROTOCOL}. Re-upload "
-                     f"backend/generator/colab_server.py and restart the "
-                     f"server cell. (An old server ignores use_lora, so the "
-                     f"base arms would silently run the adapter.)")
+                     f"needs {ABLATION_PROTOCOL} ({why}). Re-upload "
+                     f"backend/generator/colab_server.py, run "
+                     f"'!pip install -q peft', and restart the server cell.")
         if "lora" in variants and not health.get("lora_file_present"):
             sys.exit("Colab server has no geocf_lora.safetensors at "
                      "/content/; the LoRA arms cannot run.")
         print(f"Colab server: {health.get('gpu') or health.get('device')}, "
               f"protocol {protocol}, adapter file present: "
-              f"{health.get('lora_file_present')}\n")
+              f"{health.get('lora_file_present')}")
+        # Load the weights before the first run, under a long limit. On a
+        # fresh runtime that is a ~5 GB download; inside a run it would
+        # exhaust the per-request timeout, and a load error would surface
+        # only as a stub fallback on row 1.
+        print("Warming up the Colab pipeline (a fresh runtime downloads "
+              "~5 GB) ...", flush=True)
+        try:
+            warm = RemoteGenerator().warmup()
+        except Exception as exc:  # noqa: BLE001
+            sys.exit(f"Colab pipeline failed to load: {exc}")
+        print(f"Pipeline ready in {warm.get('seconds')}s, adapter loaded: "
+              f"{warm.get('lora_loaded')}\n")
+        if "lora" in variants and not warm.get("lora_loaded"):
+            sys.exit("Adapter file is present but did not load; the LoRA "
+                     "arms cannot run.")
 
 
 # --------------------------------------------------------------------------
@@ -252,9 +271,12 @@ def run_case(arm: str, region: str, intervention: str, generator,
     )
 
     # A run is only evidence if every condition the arm claims held.
-    if any(FALLBACK_MARKER in str(e.get("text", "")) for e in logs):
-        row.update(status="generator_fallback",
-                   error="primary generator failed; the stub ran instead")
+    fallbacks = [str(e.get("text", "")) for e in logs
+                 if FALLBACK_MARKER in str(e.get("text", ""))]
+    if fallbacks:
+        # Keep the cause: generator_node puts the primary's exception in
+        # the note, and "the stub ran instead" alone is undiagnosable.
+        row.update(status="generator_fallback", error=fallbacks[0][:300])
     elif row["scene_source"] == "synthetic":
         row.update(status="synthetic_scene",
                    error="Earth Engine unavailable; fabricated imagery")
@@ -503,8 +525,8 @@ def main() -> int:
                   f"iters {row.get('iterations', 0)}  {status:9s} "
                   f"{row.get('rules_failed') or '-':11s} "
                   f"{row['elapsed_s']:6.1f}s  eta {eta:5.1f} min")
-            if row["status"] == "error":
-                print(f"      error: {row['error']}")
+            if row["status"] in ("error", "generator_fallback"):
+                print(f"      cause: {row['error']}")
 
             if row["status"] == "generator_fallback" and not args.keep_going:
                 print("\nABORTED: the primary generator failed and the stub "

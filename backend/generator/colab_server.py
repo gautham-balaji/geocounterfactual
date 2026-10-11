@@ -21,6 +21,7 @@ import io
 import os
 import threading
 import time
+import traceback
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -51,14 +52,17 @@ NEGATIVE_PROMPT = (
 FEEDBACK_NEGATIVE = ("water on steep terrain, reservoir on a ridge, "
                      "floating water, vegetation on bare rock")
 
-# Protocol 2 adds per-request use_lora and seed, for the ablation runner.
+# Protocol 2 added per-request use_lora and seed, for the ablation runner.
 # remote_client.py refuses a reply that does not echo adapter_active, so an
 # outdated server cannot silently run the adapter on a base-model request.
-PROTOCOL = 2
+# Protocol 3 adds POST /warmup and reports why the pipeline failed to load,
+# in /health and in every 500, instead of a bare "Internal Server Error".
+PROTOCOL = 3
 
 app = FastAPI(title="GeoCounterfactual GPU Generator")
 _PIPE = None
 _LORA_LOADED = False
+_LOAD_ERROR: Optional[str] = None     # why the last get_pipeline() failed
 # Adapter state lives on the shared pipeline, so two concurrent requests
 # could otherwise toggle it under each other mid-generation.
 _GEN_LOCK = threading.Lock()
@@ -111,9 +115,33 @@ def encode(array: Optional[np.ndarray]) -> Optional[Dict[str, Any]]:
 # --------------------------------------------------------------------------
 
 def get_pipeline():
-    global _PIPE, _LORA_LOADED
+    global _PIPE, _LOAD_ERROR
     if _PIPE is not None:
         return _PIPE
+    try:
+        pipe = _build_pipeline()
+    except Exception as exc:
+        _LOAD_ERROR = f"{type(exc).__name__}: {exc}"
+        raise
+    _LOAD_ERROR = None
+    _PIPE = pipe
+    return pipe
+
+
+def _build_pipeline():
+    global _LORA_LOADED
+
+    # Checked before ~12 s of weight loading, not after it: without peft,
+    # load_lora_weights() raises only once the weights are in memory, and
+    # every request failed the same way with a bare 500.
+    if os.path.isfile(LORA_PATH):
+        try:
+            import peft  # noqa: F401
+        except ImportError as exc:
+            raise RuntimeError(
+                "peft is not installed, and diffusers needs it to load the "
+                "LoRA. In Colab: !pip install -q peft, then restart the "
+                "server cell.") from exc
 
     from diffusers import (ControlNetModel,
                            StableDiffusionControlNetInpaintPipeline,
@@ -157,7 +185,6 @@ def get_pipeline():
     if device == "cuda":
         # A T4 has 16 GB but Colab shares it; slicing keeps headroom.
         pipe.enable_attention_slicing()
-    _PIPE = pipe
     return pipe
 
 
@@ -273,9 +300,30 @@ def health():
         "torch": torch.__version__,
         "protocol": PROTOCOL,
         "lora_file_present": os.path.isfile(LORA_PATH),
-        # Only meaningful once the pipeline is loaded (first /generate).
+        # Only meaningful once the pipeline is loaded (/warmup or the first
+        # /generate).
         "lora_loaded": _LORA_LOADED,
+        "pipeline_error": _LOAD_ERROR,
     }
+
+
+@app.post("/warmup")
+def warmup():
+    """Load the weights now, so the first /generate is not a cold start.
+
+    On a fresh runtime this downloads ~5 GB, which can outlast a generation
+    timeout. Calling it once up front keeps that wait out of the runs.
+    """
+    started = time.time()
+    try:
+        with _GEN_LOCK:
+            get_pipeline()
+    except Exception as exc:
+        traceback.print_exc()
+        raise HTTPException(500, f"Pipeline failed to load: "
+                                 f"{type(exc).__name__}: {exc}") from exc
+    return {"pipeline_loaded": True, "lora_loaded": _LORA_LOADED,
+            "seconds": round(time.time() - started, 1), "protocol": PROTOCOL}
 
 
 @app.post("/generate")
@@ -286,7 +334,12 @@ def generate(req: GenerateRequest):
     base-model request can never silently run the fine-tuned adapter.
     """
     with _GEN_LOCK:
-        pipe = get_pipeline()
+        try:
+            pipe = get_pipeline()
+        except Exception as exc:
+            traceback.print_exc()
+            raise HTTPException(500, f"Pipeline failed to load: "
+                                     f"{type(exc).__name__}: {exc}") from exc
         want = _LORA_LOADED if req.use_lora is None else bool(req.use_lora)
         if want and not _LORA_LOADED:
             raise HTTPException(
@@ -294,11 +347,16 @@ def generate(req: GenerateRequest):
                      f"geocf_lora.safetensors to {LORA_PATH} and restart.")
         if _LORA_LOADED:
             if want:
-                pipe.enable_lora()
                 pipe.set_adapters(["geocf"], adapter_weights=[LORA_SCALE])
             else:
-                pipe.disable_lora()
-        body = _generate(req)
+                pipe.set_adapters(["geocf"], adapter_weights=[0.0])
+        try:
+            body = _generate(req)
+        except Exception as exc:
+            # A bare 500 names nothing; the client logs this detail.
+            traceback.print_exc()
+            raise HTTPException(500, f"Generation failed: "
+                                     f"{type(exc).__name__}: {exc}") from exc
         body.update(adapter_active=want, seed=req.seed, protocol=PROTOCOL)
         return body
 
@@ -399,7 +457,8 @@ if __name__ == "__main__":
 #
 # 1) Dependencies
 #    !pip install -q diffusers==0.40.0 transformers accelerate safetensors \
-#                   fastapi uvicorn nest-asyncio pyngrok scikit-image
+#                   peft fastapi uvicorn nest-asyncio pyngrok scikit-image
+#    peft is required: diffusers' load_lora_weights() raises without it.
 #
 # 2) Upload this file (Files pane, or):
 #    from google.colab import files; files.upload()      # colab_server.py
@@ -418,8 +477,9 @@ if __name__ == "__main__":
 #        target=lambda: uvicorn.run(app, host="0.0.0.0", port=8000),
 #        daemon=True).start()
 #
-# 5) Warm the weights once, so the first real request is not a cold start
-#    !curl -s http://localhost:8000/health
+# 5) Warm the weights once, so the first real request is not a cold start.
+#    /health does NOT load them; /warmup does, and names any load error.
+#    !curl -s -X POST http://localhost:8000/warmup
 #
 # 6) On this machine, put the printed URL in .env and switch backends:
 #    GENERATOR_BACKEND=remote

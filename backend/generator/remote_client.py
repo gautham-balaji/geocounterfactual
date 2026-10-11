@@ -25,7 +25,11 @@ from backend.generator.base import (BaseGenerator, GenerationRequest,
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT_S = 600
+# A warm T4 answers a scene in seconds plus ~10 MB each way over ngrok, so
+# the per-request limit lives in settings (remote_generator_timeout). The
+# cold start -- a ~5 GB weight download on a fresh runtime -- is kept out of
+# it by calling warmup() first, which gets its own long limit.
+WARMUP_TIMEOUT_S = 1200
 
 
 def encode_array(array: Optional[np.ndarray]) -> Optional[Dict[str, Any]]:
@@ -52,6 +56,24 @@ class RemoteGeneratorError(RuntimeError):
     pass
 
 
+class RemoteHTTPError(RemoteGeneratorError):
+    """The server answered with an error status. Carries its message."""
+
+    def __init__(self, status: int, detail: str):
+        super().__init__(f"HTTP {status} from the Colab server: {detail}")
+        self.status = status
+
+
+def _error_detail(response) -> str:
+    """The server's own explanation, not just 'Internal Server Error'."""
+    try:
+        body = response.json()
+        detail = body.get("detail", body) if isinstance(body, dict) else body
+    except ValueError:
+        detail = response.text
+    return str(detail).strip()[:600] or response.reason
+
+
 class AdapterMismatchError(RemoteGeneratorError):
     """The server did not run the adapter state that was requested.
 
@@ -65,17 +87,18 @@ class AdapterMismatchError(RemoteGeneratorError):
 NGROK_HEADERS = {"ngrok-skip-browser-warning": "true"}
 
 
-# colab_server.py protocol that understands use_lora and seed. An older
-# server silently ignores both fields -- pydantic drops unknown keys -- so
-# a "base" request would quietly run the fine-tuned adapter.
-ABLATION_PROTOCOL = 2
+# colab_server.py protocol the ablation needs. Protocol 2 added use_lora and
+# seed; an older server silently ignores both -- pydantic drops unknown keys
+# -- so a "base" request would quietly run the fine-tuned adapter. Protocol
+# 3 added /warmup and reports load failures instead of a bare 500.
+ABLATION_PROTOCOL = 3
 
 
 class RemoteGenerator(BaseGenerator):
     name = "remote"
 
     def __init__(self, url: Optional[str] = None,
-                 timeout_s: int = DEFAULT_TIMEOUT_S,
+                 timeout_s: Optional[float] = None,
                  retries: int = 2,
                  use_lora: Optional[bool] = None,
                  seed: Optional[int] = None):
@@ -83,7 +106,7 @@ class RemoteGenerator(BaseGenerator):
         True/False forces it on or off and is verified against the reply.
         seed: None keeps the server default (42)."""
         self.url = (url or settings.remote_generator_url or "").rstrip("/")
-        self.timeout_s = timeout_s
+        self.timeout_s = float(timeout_s or settings.remote_generator_timeout)
         self.retries = retries
         self.use_lora = use_lora
         self.seed = seed
@@ -115,7 +138,19 @@ class RemoteGenerator(BaseGenerator):
     def health(self) -> Dict[str, Any]:
         response = requests.get(f"{self.url}/health", timeout=30,
                                 headers=NGROK_HEADERS)
-        response.raise_for_status()
+        if response.status_code >= 400:
+            raise RemoteHTTPError(response.status_code,
+                                  _error_detail(response))
+        return response.json()
+
+    def warmup(self) -> Dict[str, Any]:
+        """Have the server load its weights now, with a long limit."""
+        response = requests.post(f"{self.url}/warmup",
+                                 timeout=WARMUP_TIMEOUT_S,
+                                 headers=NGROK_HEADERS)
+        if response.status_code >= 400:
+            raise RemoteHTTPError(response.status_code,
+                                  _error_detail(response))
         return response.json()
 
     def generate(self, request: GenerationRequest) -> GenerationResult:
@@ -148,7 +183,9 @@ class RemoteGenerator(BaseGenerator):
                 response = requests.post(f"{self.url}/generate", json=payload,
                                          timeout=self.timeout_s,
                                          headers=NGROK_HEADERS)
-                response.raise_for_status()
+                if response.status_code >= 400:
+                    raise RemoteHTTPError(response.status_code,
+                                          _error_detail(response))
                 body = response.json()
                 elapsed = time.time() - started
 
@@ -166,6 +203,14 @@ class RemoteGenerator(BaseGenerator):
 
             except AdapterMismatchError:
                 raise
+            except RemoteHTTPError as exc:
+                # A 4xx is the request's fault and will fail again; a 5xx
+                # may be transient (GPU out of memory) and gets the retry.
+                if exc.status < 500:
+                    raise
+                last_error = exc
+                logger.warning("Remote generate attempt %d/%d failed: %s",
+                               attempt, self.retries, exc)
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
                 logger.warning("Remote generate attempt %d/%d failed: %s",

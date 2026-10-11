@@ -90,8 +90,12 @@ def generator_node(state: GeoCounterfactualState) -> dict:
                        _settings.generator_fallback)
         fallback = _get(_settings.generator_fallback)
         result = fallback.generate(request)
+        # The cause goes in the note, not just its type: the note is what
+        # reaches the UI terminal and the ablation CSV, and
+        # "RemoteGeneratorError" alone left a failing sweep undiagnosable.
         fallback_note = (f"{getattr(generator, 'name', 'primary')} backend "
-                         f"unavailable ({type(exc).__name__}); fell back to "
+                         f"unavailable ({type(exc).__name__}: "
+                         f"{str(exc)[:300]}); fell back to "
                          f"'{result.backend}'. Scene is NOT diffusion output.")
     elapsed = time.time() - started
 

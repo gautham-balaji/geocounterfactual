@@ -36,8 +36,11 @@ def _request(iteration=0, feedback=None):
 
 
 class _Response:
-    def __init__(self, body):
+    def __init__(self, body, status_code=200):
         self._body = body
+        self.status_code = status_code
+        self.reason = "Internal Server Error" if status_code >= 500 else "OK"
+        self.text = str(body)
 
     def raise_for_status(self):
         pass
@@ -128,6 +131,40 @@ def test_feedback_accumulates_and_resets():
     print("  feedback       : cumulative within a run, reset between runs")
 
 
+def test_server_errors_are_surfaced():
+    # The sweep that prompted this test aborted on row 1 with nothing but a
+    # stub fallback: the server's 500 said "Internal Server Error" and the
+    # client threw the body away. The cause must reach the error message.
+    calls = []
+
+    def post(url, json=None, timeout=None, headers=None):
+        calls.append(1)
+        return _Response({"detail": "Pipeline failed to load: RuntimeError: "
+                                    "peft is not installed"}, 500)
+
+    rc.requests.post = post
+    try:
+        _client(use_lora=False).generate(_request())
+    except rc.RemoteGeneratorError as exc:
+        assert "peft is not installed" in str(exc), str(exc)
+        assert "HTTP 500" in str(exc)
+        assert len(calls) == 2, "a 5xx gets one retry"
+    else:
+        raise AssertionError("a 500 was accepted")
+
+    calls.clear()
+    rc.requests.post = lambda *a, **k: (calls.append(1) or
+                                        _Response({"detail": "bad"}, 409))
+    try:
+        _client(use_lora=True).generate(_request())
+    except rc.RemoteHTTPError as exc:
+        assert exc.status == 409 and len(calls) == 1, "a 4xx is not retried"
+    else:
+        raise AssertionError("a 409 was accepted")
+    print("  server errors  : 500 detail surfaced (retried once), 409 not "
+          "retried")
+
+
 def test_server_toggles_and_echoes():
     import backend.generator.colab_server as cs
 
@@ -136,7 +173,8 @@ def test_server_toggles_and_echoes():
     class FakePipe:
         def enable_lora(self): calls.append("enable")
         def disable_lora(self): calls.append("disable")
-        def set_adapters(self, names, adapter_weights): calls.append("scale")
+        def set_adapters(self, names, adapter_weights):
+            calls.append(("weight", adapter_weights[0]))
 
     original = (cs.get_pipeline, cs._generate, cs._LORA_LOADED)
     cs.get_pipeline = lambda: FakePipe()
@@ -156,8 +194,11 @@ def test_server_toggles_and_echoes():
         off = cs.generate(req(False))
         on = cs.generate(req(True))
         default = cs.generate(req(None))
-        assert off["adapter_active"] is False and calls[0] == "disable"
-        assert on["adapter_active"] is True and calls[1:3] == ["enable", "scale"]
+        # Base is the adapter at weight 0 -- verified on a real UNet to equal
+        # the unloaded base model exactly -- and LoRA is it at LORA_SCALE.
+        assert off["adapter_active"] is False and calls[0] == ("weight", 0.0)
+        assert on["adapter_active"] is True and calls[1] == ("weight",
+                                                             cs.LORA_SCALE)
         assert default["adapter_active"] is True
         assert off["seed"] == 9 and off["protocol"] == cs.PROTOCOL
 
@@ -178,7 +219,7 @@ def test_server_toggles_and_echoes():
 def run() -> int:
     original_post = rc.requests.post
     print("=" * 70)
-    print("REMOTE PROTOCOL 2: per-request adapter, seed, cumulative feedback")
+    print("REMOTE PROTOCOL 3: adapter, seed, cumulative feedback, errors")
     print("=" * 70)
     try:
         test_payload_carries_adapter_and_seed()
@@ -186,6 +227,7 @@ def run() -> int:
         test_wrong_adapter_state_is_refused()
         test_demo_path_unaffected()
         test_feedback_accumulates_and_resets()
+        test_server_errors_are_surfaced()
         test_server_toggles_and_echoes()
     finally:
         rc.requests.post = original_post

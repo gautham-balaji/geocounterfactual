@@ -234,6 +234,11 @@ class Settings(BaseSettings):
     # --- Generator backend: stub | local | remote (see generator/base.py) ---
     generator_backend: str = "stub"
     remote_generator_url: Optional[str] = None
+    # Per /generate request once the Colab weights are loaded: up to 8
+    # windows at ~5.6 s each on a T4, plus ~10 MB each way over ngrok. The
+    # cold start (a ~5 GB download) is not covered here; RemoteGenerator
+    # .warmup() takes it, with its own limit.
+    remote_generator_timeout: int = 300
     # Used when the primary backend raises (expired ngrok tunnel, dead Colab
     # runtime). "stub" is instant; "local" would stall a demo for minutes.
     generator_fallback: str = "stub"
