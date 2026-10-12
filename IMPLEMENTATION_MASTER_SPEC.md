@@ -3,7 +3,7 @@
 > **Target Audience:** AI Coding Agent (Claude Code in VS Code) & Development Team  
 > **Document Purpose:** Complete technical onboarding, architectural blueprint, repository state, data engineering protocols, and phased implementation roadmap to transition from the frontend UI prototype into the real LangGraph multi-agent backend.  
 > **Date of Generation:** September 2026  
-> **Source Documents Integrated:** `GeoCounterfactual_Onboarding_Doc.md`, Frontend Prototype Codebase (`src/`), Review Presentation Scripts, and System Architecture Diagrams.
+> **Source Documents Integrated:** `GeoCounterfactual_Onboarding_Doc.md`, Frontend Prototype Codebase (`src/`), Review Presentation Scripts, and System Architecture Diagrams
 
 ---
 
